@@ -1,0 +1,115 @@
+port: 7890
+socks-port: 7891
+mixed-port: 7897
+allow-lan: false
+mode: rule
+log-level: info
+ipv6: false  # 建议设为 false。虽然你提供的配置开启了，但国内环境 IPv6 极易导致 DNS 泄露被探测
+external-controller: '127.0.0.1:9090'
+global-client-fingerprint: firefox
+
+tun:
+  enable: true # 开启 TUN 模式，接管系统级流量，防止侧漏
+  stack: system
+  auto-route: true
+  auto-detect-interface: true
+
+dns:
+  enable: true
+  ipv6: false
+  enhanced-mode: fake-ip
+  listen: '127.0.0.1:5335'
+  fake-ip-range: 198.18.0.1/16
+  # 继承你提供配置中的过滤列表，防止这些流量进入 fake-ip
+  fake-ip-filter: ['*.lan', 'stun.*.*.*', 'stun.*.*', 'time.windows.com', 'ntp.aliyun.com', 'music.163.com', 'speedtest.net']
+  default-nameserver: [223.5.5.5, 119.29.29.29, 8.8.8.8]
+  nameserver:
+    - 'https://dns.alidns.com/dns-query'
+    - 'https://doh.pub/dns-query'
+  fallback:
+    - 'https://8.8.8.8/dns-query'
+    - 'https://1.1.1.1/dns-query'
+    - 'tls://dns.google'
+
+proxies:
+  - { name: 'socks-vmiss', type: socks5, server: 127.0.0.1, port: 10880, tcp: true }
+  - { name: 'socks-evoxt', type: socks5, server: 127.0.0.1, port: 10881, tcp: true }
+
+proxy-groups:
+  - name: VMISS
+    type: fallback
+    url: 'http://www.gstatic.com/generate_204'
+    interval: 300
+    proxies:
+      - socks-vmiss
+      - socks-evoxt
+
+  - name: EVOXT
+    type: select
+    proxies:
+      - socks-evoxt
+
+rule-providers:
+  openai:
+    type: http
+    behavior: classical
+    url: "https://raw.githubusercontent.com/BlackMatrix7/ios_rule_script/master/rule/Clash/OpenAI/OpenAI.yaml"
+    path: ./ruleset/openai.yaml
+    interval: 86400
+
+rules:
+  # 1. 基础绕过与拦截
+  - 'DOMAIN,subapi.doggysub.uk,DIRECT'
+  - 'DOMAIN-SUFFIX,ad.com,REJECT'
+  
+  # 2. OpenAI / ChatGPT 全量域名库 (继承你提供的高精度规则)
+  - 'DOMAIN,chat.openai.com.cdn.cloudflare.net,EVOXT'
+  - 'DOMAIN,openaicom-api-bdcpf8c6d2e9atf6.z01.azurefd.net,EVOXT'
+  - 'DOMAIN-SUFFIX,ai.com,EVOXT'
+  - 'DOMAIN-SUFFIX,chatgpt.com,EVOXT'
+  - 'DOMAIN-SUFFIX,openai.com,EVOXT'
+  - 'DOMAIN-SUFFIX,oaistatic.com,EVOXT'
+  - 'DOMAIN-SUFFIX,oaiusercontent.com,EVOXT'
+  - 'DOMAIN,openai-api.arkoselabs.com,EVOXT'
+  - 'DOMAIN-SUFFIX,client-api.arkoselabs.com,EVOXT'
+  - 'DOMAIN-SUFFIX,events.statsigapi.net,EVOXT'
+  - 'DOMAIN-SUFFIX,featuregates.org,EVOXT'
+  - 'DOMAIN-SUFFIX,identrust.com,EVOXT'
+  - 'DOMAIN-SUFFIX,intercom.io,EVOXT'
+  - 'DOMAIN-KEYWORD,openai,EVOXT'
+  - RULE-SET,openai,EVOXT
+
+  # 3. 其他 AI
+  - 'PROCESS-NAME,claude,EVOXT'
+  - 'PROCESS-NAME,claude.exe,EVOXT'
+  - 'DOMAIN-SUFFIX,anthropic.com,EVOXT'
+  - 'DOMAIN-SUFFIX,claude.ai,EVOXT'
+  - 'DOMAIN-SUFFIX,claude.com,EVOXT'
+  - 'DOMAIN-SUFFIX,gemini.google.com,EVOXT'
+  - 'DOMAIN-SUFFIX,ping0.cc,EVOXT'
+
+  # 4. Google 家族 (默认走 VMISS 香港)
+  - 'DOMAIN-KEYWORD,google,VMISS'
+  - 'DOMAIN-KEYWORD,youtube,VMISS'
+  - 'DOMAIN-SUFFIX,googleapis.com,VMISS'
+
+  # 5. 国内直连规则 (继承你的配置)
+  - 'DOMAIN-SUFFIX,cn,DIRECT'
+  - 'DOMAIN-KEYWORD,-cn,DIRECT'
+  - 'DOMAIN-SUFFIX,163.com,DIRECT'
+  - 'DOMAIN-SUFFIX,qq.com,DIRECT'
+  - 'DOMAIN-SUFFIX,baidu.com,DIRECT'
+  - 'DOMAIN-SUFFIX,apple.com,DIRECT'
+  - 'DOMAIN-SUFFIX,weixin.com,DIRECT'
+  
+  # 6. IP 分流
+  - 'IP-CIDR,127.0.0.0/8,DIRECT'
+  - 'IP-CIDR,10.10.10.0/8,DIRECT'
+  - 'IP-CIDR,192.168.0.0/16,DIRECT'
+  - 'IP-CIDR,38.207.165.189/32,DIRECT'
+  - 'IP-CIDR,96.126.191.85/32,DIRECT'
+  - 'GEOIP,CN,DIRECT'
+
+  # 7. 兜底
+  - 'MATCH,VMISS'
+

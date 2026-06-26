@@ -312,6 +312,49 @@ interface IVergeTestItem {
   icon?: string
   url: string
 }
+
+interface ISshServer {
+  uid: string
+  name: string
+  host: string
+  port: number
+  username: string
+  /** 留空表示不修改原密码；返回时永远为空 */
+  password?: string
+  local_port: number
+  enabled: boolean
+}
+
+type ISshTunnelState =
+  | 'Stopped'
+  | 'Connecting'
+  | 'Running'
+  | 'Reconnecting'
+  | 'Error'
+
+interface ISshTunnelStatus {
+  state: ISshTunnelState
+  message?: string
+}
+
+interface ISshTunnelStats {
+  status: ISshTunnelStatus
+  /** 最近一次延迟（毫秒），null 表示未知 */
+  latency_ms: number | null
+  /** 上行累计字节 */
+  up: number
+  /** 下行累计字节 */
+  down: number
+}
+
+type ISshLogLevel = 'info' | 'warn' | 'error'
+
+interface ISshLogEntry {
+  time: string
+  level: ISshLogLevel
+  message: string
+}
+
 interface IAddress {
   V4?: {
     ip: string

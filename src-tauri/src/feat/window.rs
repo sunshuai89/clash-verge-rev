@@ -118,6 +118,18 @@ pub async fn clean_async() -> bool {
         }
     });
 
+    // 停止所有 SSH 隧道（释放本地监听端口与 SSH 会话）
+    let ssh_task = tokio::task::spawn(async {
+        logging!(info, Type::System, "stop ssh tunnels");
+        match timeout(Duration::from_secs(3), crate::core::SshManager::global().stop_all()).await {
+            Ok(()) => true,
+            Err(_) => {
+                logging!(warn, Type::Window, "Warning: 停止SSH隧道超时，继续退出");
+                false
+            }
+        }
+    });
+
     // DNS恢复（仅macOS）
     let dns_task = tokio::task::spawn(async {
         #[cfg(target_os = "macos")]
@@ -141,20 +153,22 @@ pub async fn clean_async() -> bool {
     });
 
     // 并行执行清理任务
-    let (proxy_result, core_result, dns_result) = tokio::join!(proxy_task, core_task, dns_task);
+    let (proxy_result, core_result, ssh_result, dns_result) = tokio::join!(proxy_task, core_task, ssh_task, dns_task);
 
     let proxy_success = proxy_result.unwrap_or_default();
     let core_success = core_result.unwrap_or_default();
+    let ssh_success = ssh_result.unwrap_or_default();
     let dns_success = dns_result.unwrap_or_default();
 
-    let all_success = proxy_success && core_success && dns_success;
+    let all_success = proxy_success && core_success && ssh_success && dns_success;
 
     logging!(
         info,
         Type::System,
-        "异步关闭操作完成 - 代理: {}, 核心: {}, DNS: {}, 总体: {}",
+        "异步关闭操作完成 - 代理: {}, 核心: {}, SSH: {}, DNS: {}, 总体: {}",
         proxy_success,
         core_success,
+        ssh_success,
         dns_success,
         all_success
     );

@@ -9,6 +9,7 @@
         "rules": "Rules",
         "logs": "Logs",
         "unlock": "Test",
+        "ssh": "SSH",
         "settings": "Settings"
       },
       "menu": {

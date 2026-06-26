@@ -23,6 +23,7 @@ pub static PORTABLE_FLAG: OnceCell<bool> = OnceCell::new();
 pub static CLASH_CONFIG: &str = "config.yaml";
 pub static VERGE_CONFIG: &str = "verge.yaml";
 pub static PROFILE_YAML: &str = "profiles.yaml";
+pub static SSH_CONFIG: &str = "ssh_tunnels.yaml";
 
 /// init portable flag
 pub fn init_portable_flag() -> Result<()> {
@@ -136,6 +137,10 @@ pub fn verge_path() -> Result<PathBuf> {
 
 pub fn profiles_path() -> Result<PathBuf> {
     Ok(app_home_dir()?.join(PROFILE_YAML))
+}
+
+pub fn ssh_tunnels_path() -> Result<PathBuf> {
+    Ok(app_home_dir()?.join(SSH_CONFIG))
 }
 
 #[cfg(target_os = "macos")]

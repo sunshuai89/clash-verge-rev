@@ -191,6 +191,7 @@ export interface TranslationResources {
             proxies: string
             rules: string
             settings: string
+            ssh: string
             unlock: string
           }
         }
@@ -1353,6 +1354,72 @@ export interface TranslationResources {
         maximize: string
         minimize: string
       }
+    }
+    ssh: {
+      actions: {
+        addTunnel: string
+        cancel: string
+        clear: string
+        close: string
+        delete: string
+        edit: string
+        logs: string
+        save: string
+        selectFile: string
+      }
+      add: string
+      copied: string
+      deleted: string
+      dialog: {
+        addTitle: string
+        editTitle: string
+      }
+      errors: {
+        invalidPort: string
+        passwordRequired: string
+        required: string
+      }
+      field: {
+        authKey: string
+        authPassword: string
+        authType: string
+        host: string
+        keyPath: string
+        localPort: string
+        name: string
+        namePlaceholder: string
+        password: string
+        passwordEditHint: string
+        port: string
+        username: string
+      }
+      hint: string
+      localPort: string
+      logs: {
+        autoScroll: string
+        cleared: string
+        empty: string
+        title: string
+      }
+      metrics: {
+        cumulative: string
+        download: string
+        duration: string
+        lastActive: string
+        latency: string
+        rate: string
+        upload: string
+      }
+      saved: string
+      startAll: string
+      status: {
+        connecting: string
+        error: string
+        reconnecting: string
+        running: string
+        stopped: string
+      }
+      title: string
     }
     tests: {
       components: {

@@ -7,6 +7,7 @@ import proxies from './proxies.json'
 import rules from './rules.json'
 import settings from './settings.json'
 import shared from './shared.json'
+import ssh from './ssh.json'
 import tests from './tests.json'
 
 const resources = {
@@ -19,6 +20,7 @@ const resources = {
   rules: rules,
   settings: settings,
   shared: shared,
+  ssh: ssh,
   tests: tests,
 }
 

@@ -215,6 +215,15 @@ mod app_init {
             cmd::restore_webdav_backup,
             cmd::get_unlock_items,
             cmd::check_media_unlock,
+            cmd::get_ssh_servers,
+            cmd::save_ssh_server,
+            cmd::delete_ssh_server,
+            cmd::start_ssh_tunnel,
+            cmd::stop_ssh_tunnel,
+            cmd::get_ssh_tunnel_status,
+            cmd::get_ssh_tunnel_stats,
+            cmd::get_ssh_tunnel_logs,
+            cmd::clear_ssh_tunnel_logs,
         ]
     }
 }

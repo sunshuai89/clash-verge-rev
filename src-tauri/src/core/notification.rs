@@ -14,6 +14,8 @@ pub enum FrontendEvent<'a> {
     TimerUpdated { profile_index: &'a String },
     ProfileUpdateStarted { uid: &'a String },
     ProfileUpdateCompleted { uid: &'a String },
+    SshTunnelStatusChanged { uid: String, status: serde_json::Value },
+    SshTunnelLog { uid: String, entry: serde_json::Value },
 }
 
 #[derive(Debug)]
@@ -41,6 +43,12 @@ impl NotificationSystem {
             FrontendEvent::TimerUpdated { profile_index } => ("verge://timer-updated", Ok(json!(profile_index))),
             FrontendEvent::ProfileUpdateStarted { uid } => ("profile-update-started", Ok(json!({ "uid": uid }))),
             FrontendEvent::ProfileUpdateCompleted { uid } => ("profile-update-completed", Ok(json!({ "uid": uid }))),
+            FrontendEvent::SshTunnelStatusChanged { uid, status } => {
+                ("verge://ssh-tunnel-status", Ok(json!({ "uid": uid, "status": status })))
+            }
+            FrontendEvent::SshTunnelLog { uid, entry } => {
+                ("verge://ssh-tunnel-log", Ok(json!({ "uid": uid, "entry": entry })))
+            }
         }
     }
 

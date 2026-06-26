@@ -575,3 +575,41 @@ export const isPortInUse = async (port: number) => {
     return false
   }
 }
+
+// ── SSH SOCKS 隧道 ──────────────────────────────────────────
+
+export async function getSshServers() {
+  return invoke<ISshServer[]>('get_ssh_servers')
+}
+
+export async function saveSshServer(server: ISshServer) {
+  return invoke<void>('save_ssh_server', { server })
+}
+
+export async function deleteSshServer(uid: string) {
+  return invoke<void>('delete_ssh_server', { uid })
+}
+
+export async function startSshTunnel(uid: string) {
+  return invoke<void>('start_ssh_tunnel', { uid })
+}
+
+export async function stopSshTunnel(uid: string) {
+  return invoke<void>('stop_ssh_tunnel', { uid })
+}
+
+export async function getSshTunnelStatus() {
+  return invoke<Record<string, ISshTunnelStatus>>('get_ssh_tunnel_status')
+}
+
+export async function getSshTunnelStats() {
+  return invoke<Record<string, ISshTunnelStats>>('get_ssh_tunnel_stats')
+}
+
+export async function getSshTunnelLogs(uid: string) {
+  return invoke<ISshLogEntry[]>('get_ssh_tunnel_logs', { uid })
+}
+
+export async function clearSshTunnelLogs(uid: string) {
+  return invoke<void>('clear_ssh_tunnel_logs', { uid })
+}

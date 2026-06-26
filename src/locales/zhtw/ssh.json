@@ -1,0 +1,66 @@
+{
+  "title": "SSH 隧道",
+  "hint": "每個開啟的隧道會在 127.0.0.1:<本地端口> 起一個 SOCKS5 監聽。在 profile 中用 socks5 節點指向該端口即可讓流量經 SSH 轉發。",
+  "add": "新增",
+  "startAll": "全部開啟",
+  "localPort": "本地 SOCKS5",
+  "saved": "已儲存",
+  "deleted": "已刪除",
+  "copied": "已複製",
+  "metrics": {
+    "latency": "延遲",
+    "rate": "即時/s",
+    "cumulative": "累計",
+    "duration": "時長",
+    "lastActive": "最後活躍",
+    "upload": "上行",
+    "download": "下行"
+  },
+  "status": {
+    "stopped": "已停止",
+    "connecting": "連線中",
+    "running": "運行中",
+    "reconnecting": "重連中",
+    "error": "錯誤"
+  },
+  "dialog": {
+    "addTitle": "新增 SSH 通道",
+    "editTitle": "編輯 SSH 伺服器"
+  },
+  "field": {
+    "name": "名稱",
+    "namePlaceholder": "例如 VMISS",
+    "host": "伺服器 IP / 網域",
+    "port": "SSH 端口",
+    "username": "用戶名",
+    "authType": "認證方式",
+    "authPassword": "密碼",
+    "authKey": "私鑰",
+    "password": "密碼",
+    "passwordEditHint": "留空則不修改",
+    "keyPath": "私鑰路徑",
+    "localPort": "本地 SOCKS5 端口"
+  },
+  "actions": {
+    "edit": "編輯",
+    "delete": "刪除",
+    "save": "儲存",
+    "addTunnel": "新增通道",
+    "selectFile": "選擇…",
+    "cancel": "取消",
+    "logs": "日誌",
+    "close": "關閉",
+    "clear": "清空"
+  },
+  "logs": {
+    "title": "通道日誌",
+    "empty": "暫無日誌",
+    "autoScroll": "自動捲動",
+    "cleared": "日誌已清空"
+  },
+  "errors": {
+    "required": "伺服器地址與用戶名為必填",
+    "passwordRequired": "密碼為必填",
+    "invalidPort": "本地端口無效"
+  }
+}

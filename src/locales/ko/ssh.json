@@ -1,0 +1,66 @@
+{
+  "title": "SSH Tunnels",
+  "hint": "Each enabled tunnel opens a local SOCKS5 listener at 127.0.0.1:<local port>. Point a socks5 node in your profile at that port to route traffic through SSH.",
+  "add": "New",
+  "startAll": "Start All",
+  "localPort": "Local SOCKS5",
+  "saved": "Saved",
+  "deleted": "Deleted",
+  "copied": "Copied",
+  "metrics": {
+    "latency": "Latency",
+    "rate": "Rate/s",
+    "cumulative": "Total",
+    "duration": "Duration",
+    "lastActive": "Last Active",
+    "upload": "Up",
+    "download": "Down"
+  },
+  "status": {
+    "stopped": "Stopped",
+    "connecting": "Connecting",
+    "running": "Running",
+    "reconnecting": "Reconnecting",
+    "error": "Error"
+  },
+  "dialog": {
+    "addTitle": "New SSH Tunnel",
+    "editTitle": "Edit SSH Server"
+  },
+  "field": {
+    "name": "Name",
+    "namePlaceholder": "e.g. VMISS",
+    "host": "Host / IP",
+    "port": "SSH Port",
+    "username": "Username",
+    "authType": "Auth Type",
+    "authPassword": "Password",
+    "authKey": "Private Key",
+    "password": "Password",
+    "passwordEditHint": "Leave empty to keep current",
+    "keyPath": "Key Path",
+    "localPort": "Local SOCKS5 Port"
+  },
+  "actions": {
+    "edit": "Edit",
+    "delete": "Delete",
+    "save": "Save",
+    "addTunnel": "Add Tunnel",
+    "selectFile": "Browse…",
+    "cancel": "Cancel",
+    "logs": "Logs",
+    "close": "Close",
+    "clear": "Clear"
+  },
+  "logs": {
+    "title": "Tunnel Logs",
+    "empty": "No logs yet",
+    "autoScroll": "Auto scroll",
+    "cleared": "Logs cleared"
+  },
+  "errors": {
+    "required": "Host and username are required",
+    "passwordRequired": "Password is required",
+    "invalidPort": "Invalid local port"
+  }
+}

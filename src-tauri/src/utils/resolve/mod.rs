@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::{
     config::Config,
     core::{
-        CoreManager, Timer,
+        CoreManager, SshManager, Timer,
         handle::Handle,
         hotkey::Hotkey,
         logger::Logger,
@@ -70,6 +70,7 @@ pub fn resolve_setup_async() {
             init_auto_lightweight_boot(),
             init_auto_backup(),
             init_silent_updater(),
+            init_ssh_tunnels(),
         );
 
         Handle::refresh_clash();
@@ -79,6 +80,7 @@ pub fn resolve_setup_async() {
 }
 
 pub async fn resolve_reset_async() -> Result<(), anyhow::Error> {
+    SshManager::global().stop_all().await;
     sysopt::Sysopt::global().reset_sysproxy().await?;
     CoreManager::global().stop_core().await?;
 
@@ -128,6 +130,14 @@ pub(super) async fn init_auto_lightweight_boot() {
 
 pub(super) async fn init_auto_backup() {
     logging_error!(Type::Setup, AutoBackupManager::global().init().await);
+}
+
+/// 加载 SSH 隧道配置并恢复所有 enabled = true 的隧道
+pub(super) async fn init_ssh_tunnels() {
+    logging!(info, Type::Setup, "Initializing SSH tunnels...");
+    let manager = SshManager::global();
+    manager.load_config().await;
+    manager.start_all_enabled().await;
 }
 
 async fn init_silent_updater() {

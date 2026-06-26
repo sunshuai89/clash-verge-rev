@@ -5,6 +5,7 @@ import LanguageRoundedIcon from '@mui/icons-material/LanguageRounded'
 import LockOpenRoundedIcon from '@mui/icons-material/LockOpenRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import SubjectRoundedIcon from '@mui/icons-material/SubjectRounded'
+import TerminalRoundedIcon from '@mui/icons-material/TerminalRounded'
 import WifiRoundedIcon from '@mui/icons-material/WifiRounded'
 import { createBrowserRouter, RouteObject } from 'react-router'
 
@@ -24,6 +25,7 @@ import ProfilesPage from './profiles'
 import ProxiesPage from './proxies'
 import RulesPage from './rules'
 import SettingsPage from './settings'
+import SshPage from './ssh'
 import UnlockPage from './unlock'
 
 export const navItems = [
@@ -68,6 +70,15 @@ export const navItems = [
     path: '/unlock',
     icon: [<LockOpenRoundedIcon key="mui" />, <UnlockSvg key="svg" />],
     Component: UnlockPage,
+  },
+  {
+    label: 'layout.components.navigation.tabs.ssh',
+    path: '/ssh',
+    icon: [
+      <TerminalRoundedIcon key="mui" />,
+      <TerminalRoundedIcon key="svg" />,
+    ],
+    Component: SshPage,
   },
   {
     label: 'layout.components.navigation.tabs.settings',

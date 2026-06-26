@@ -62,6 +62,20 @@ impl Handle {
         Self::send_event(FrontendEvent::ProfileUpdateCompleted { uid });
     }
 
+    pub fn notify_ssh_tunnel_status(uid: &str, status: serde_json::Value) {
+        Self::send_event(FrontendEvent::SshTunnelStatusChanged {
+            uid: uid.into(),
+            status,
+        });
+    }
+
+    pub fn notify_ssh_tunnel_log(uid: &str, entry: serde_json::Value) {
+        Self::send_event(FrontendEvent::SshTunnelLog {
+            uid: uid.into(),
+            entry,
+        });
+    }
+
     pub fn notice_message<S: AsRef<str>, M: Into<String>>(status: S, msg: M) {
         let status_str = status.as_ref();
         let msg_str = msg.into();

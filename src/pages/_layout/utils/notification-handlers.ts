@@ -24,18 +24,7 @@ export const handleNoticeMessage = (
       showNotice.error(msg)
     },
     'set_config::error': () => showNotice.error(msg),
-    update_with_clash_proxy: () =>
-      showNotice.success(
-        'settings.feedback.notifications.updater.withClashProxySuccess',
-        msg,
-      ),
-    update_failed_even_with_clash: () =>
-      showNotice.error(
-        'settings.feedback.notifications.updater.withClashProxyFailed',
-        msg,
-      ),
     'reactivate_profiles::error': () => showNotice.error(msg),
-    update_failed: () => showNotice.error(msg),
     'config_validate::boot_error': () =>
       showNotice.error('shared.feedback.validation.config.bootFailed', msg),
     'config_validate::core_change': () =>

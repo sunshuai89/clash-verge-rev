@@ -26,12 +26,21 @@ import {
   UptimeContext,
 } from './app-data-context'
 
+// 内核 IPC socket 在前端挂载时可能尚未就绪（尤其是服务模式下，内核在窗口
+// 创建之后才启动并初始化 TUN，套接字稍后才出现）。首次请求的 3 次重试
+// (~1.4s) 往往在套接字就绪前耗尽，导致查询永久停留在错误态，首页出现
+// “内核通信错误”。在首次成功前按间隔自愈重试，成功后停止轮询，继续依赖
+// 事件驱动刷新 (verge://refresh-clash-config)。
+const refetchUntilReady = (query: { state: { status: string } }) =>
+  query.state.status === 'success' ? false : 2000
+
 const TQ_MIHOMO = {
   refetchOnWindowFocus: false,
   refetchOnReconnect: false,
   staleTime: 1500,
   retry: 3,
   retryDelay: (attempt: number) => Math.min(200 * 2 ** attempt, 3000),
+  refetchInterval: refetchUntilReady,
 } as const
 
 const TQ_DEFAULTS = {

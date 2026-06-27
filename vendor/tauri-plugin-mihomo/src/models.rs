@@ -68,6 +68,10 @@ pub struct BaseConfig {
     pub tcp_concurrent: bool,
     pub find_process_mode: FindProcessMode,
     pub sniffing: bool,
+    // Some mihomo core versions omit `global-client-fingerprint` from /configs when it is
+    // unset; default to empty so the whole BaseConfig deserialization doesn't fail (which
+    // surfaced on the home page as a permanent "内核通信错误").
+    #[serde(default)]
     pub global_client_fingerprint: String,
     pub global_ua: String,
     pub etag_support: bool,

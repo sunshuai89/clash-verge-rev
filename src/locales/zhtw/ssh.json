@@ -3,6 +3,29 @@
   "hint": "每個開啟的隧道會在 127.0.0.1:<本地端口> 起一個 SOCKS5 監聽。在 profile 中用 socks5 節點指向該端口即可讓流量經 SSH 轉發。",
   "add": "新增",
   "startAll": "全部開啟",
+  "restartAll": "Restart All",
+  "import": "Import",
+  "export": "Export",
+  "importSuccess": "Imported {{count}} tunnel servers",
+  "exportSuccess": "Encrypted config exported",
+  "importDialog": {
+    "title": "Import Tunnel Servers",
+    "urlLabel": "Subscription URL",
+    "urlPlaceholder": "https://example.com/ssh-tunnels.yaml",
+    "passphraseLabel": "Passphrase (encrypted config only)",
+    "passphrasePlaceholder": "Leave empty for plaintext config",
+    "warning": "Importing will clear all existing SSH servers and replace them with the ones from this URL. Tunnels will start or stop according to each server's status in the file. This cannot be undone.",
+    "confirm": "Clear & Import",
+    "importing": "Importing…"
+  },
+  "exportDialog": {
+    "title": "Export Tunnel Servers",
+    "passphraseLabel": "Passphrase",
+    "passphrasePlaceholder": "Used to encrypt the config file",
+    "hint": "All servers (including passwords) are encrypted with this passphrase (Argon2id + AES-256-GCM) into a portable file you can host and import elsewhere. Keep the passphrase safe — it cannot be recovered if lost.",
+    "confirm": "Encrypt & Save",
+    "exporting": "Exporting…"
+  },
   "localPort": "本地 SOCKS5",
   "saved": "已儲存",
   "deleted": "已刪除",
@@ -29,7 +52,7 @@
   },
   "field": {
     "name": "名稱",
-    "namePlaceholder": "例如 VMISS",
+    "namePlaceholder": "例如 Server",
     "host": "伺服器 IP / 網域",
     "port": "SSH 端口",
     "username": "用戶名",
@@ -61,6 +84,8 @@
   "errors": {
     "required": "伺服器地址與用戶名為必填",
     "passwordRequired": "密碼為必填",
-    "invalidPort": "本地端口無效"
+    "invalidPort": "本地端口無效",
+    "importUrlRequired": "Please enter an import URL",
+    "passphraseRequired": "Please enter a passphrase"
   }
 }

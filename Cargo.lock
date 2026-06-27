@@ -1230,6 +1230,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "arc-swap",
+ "argon2",
  "async-trait",
  "backon",
  "base64 0.22.1",

@@ -4,6 +4,7 @@ use crate::config::{Config, IVerge};
 use crate::core::handle::Handle;
 use crate::core::manager::CLASH_LOGGER;
 use crate::core::service::{SERVICE_MANAGER, ServiceStatus};
+use crate::process::AsyncHandler;
 use anyhow::Result;
 use clash_verge_logging::{Type, logging};
 use scopeguard::defer;
@@ -17,10 +18,44 @@ impl CoreManager {
             self.after_core_process();
         }
 
-        match *self.get_running_mode() {
+        let result = match *self.get_running_mode() {
             RunningMode::Service => self.start_core_by_service().await,
             RunningMode::NotRunning | RunningMode::Sidecar => self.start_core_by_sidecar().await,
+        };
+
+        if result.is_ok() {
+            Self::notify_frontend_when_core_ready();
         }
+        result
+    }
+
+    /// 等待内核 IPC 就绪后通知前端刷新配置。
+    ///
+    /// `start_core` 返回时内核（尤其是服务模式）往往尚未创建 IPC 套接字，
+    /// 前端首次拉取配置会失败且不会自动重试，导致首页停留在“内核通信错误”。
+    /// 这里在后台轮询 `get_version` 直到内核可达，再发出 `RefreshClash`，
+    /// 让前端在内核真正就绪后重新拉取配置。
+    fn notify_frontend_when_core_ready() {
+        use std::time::Duration;
+
+        const PROBE_INTERVAL: Duration = Duration::from_millis(500);
+        const MAX_PROBES: u32 = 20; // 最多约 10s，覆盖内核启动 + TUN 初始化
+
+        AsyncHandler::spawn(|| async {
+            for _ in 0..MAX_PROBES {
+                let reachable = Handle::mihomo().await.get_version().await.is_ok();
+                if reachable {
+                    Handle::refresh_clash();
+                    return;
+                }
+                tokio::time::sleep(PROBE_INTERVAL).await;
+            }
+            logging!(
+                warn,
+                Type::Core,
+                "内核启动后 IPC 在超时时间内仍不可达，跳过就绪刷新通知"
+            );
+        });
     }
 
     pub async fn stop_core(&self) -> Result<()> {

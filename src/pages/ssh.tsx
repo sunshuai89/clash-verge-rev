@@ -5,6 +5,8 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded'
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
 import SubjectRoundedIcon from '@mui/icons-material/SubjectRounded'
 import {
   Box,
@@ -15,6 +17,7 @@ import {
 } from '@mui/material'
 import { listen } from '@tauri-apps/api/event'
 import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+import { save } from '@tauri-apps/plugin-dialog'
 import { useInterval, useLockFn } from 'ahooks'
 import {
   type CSSProperties,
@@ -30,9 +33,12 @@ import { BaseDialog, BaseEmpty, Switch } from '@/components/base'
 import {
   clearSshTunnelLogs,
   deleteSshServer,
+  exportSshServers,
   getSshServers,
   getSshTunnelLogs,
   getSshTunnelStats,
+  importSshServers,
+  restartAllSshTunnels,
   saveSshServer,
   startAllSshTunnels,
   startSshTunnel,
@@ -1050,6 +1056,302 @@ function AddEditDialog({
   )
 }
 
+// ─── Import dialog (subscription-style URL import; clears existing) ───────────
+
+interface ImportDialogProps {
+  open: boolean
+  url: string
+  passphrase: string
+  importing: boolean
+  onUrlChange: (v: string) => void
+  onPassphraseChange: (v: string) => void
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function ImportDialog({
+  open,
+  url,
+  passphrase,
+  importing,
+  onUrlChange,
+  onPassphraseChange,
+  onConfirm,
+  onClose,
+}: ImportDialogProps) {
+  const { t } = useTranslation()
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'auto',
+      }}
+      slotProps={{
+        backdrop: {
+          sx: {
+            background: 'rgba(20,20,22,.42)',
+            backdropFilter: 'blur(2px)',
+          },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          width: 480,
+          maxWidth: 'calc(100vw - 32px)',
+          bgcolor: C.card,
+          borderRadius: '16px',
+          boxShadow: '0 24px 64px rgba(0,0,0,.3)',
+          overflow: 'hidden',
+          outline: 'none',
+          m: 'auto',
+          animation: open ? 'scc-pop .2s cubic-bezier(.16,1,.3,1)' : 'none',
+        }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: '24px',
+            pt: '22px',
+            pb: '18px',
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '17px',
+              fontWeight: 650,
+              color: C.textPrimary,
+              letterSpacing: '-.01em',
+              fontFamily: C.sansStack,
+            }}
+          >
+            {t('ssh.importDialog.title')}
+          </Typography>
+          <ActionBtn onClick={onClose}>
+            <CloseRoundedIcon sx={{ fontSize: 16 }} />
+          </ActionBtn>
+        </Box>
+
+        {/* Body */}
+        <Box
+          sx={{
+            px: '24px',
+            pb: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '15px',
+          }}
+        >
+          <FormField label={t('ssh.importDialog.urlLabel')}>
+            <FormInput
+              value={url}
+              onChange={onUrlChange}
+              placeholder={t('ssh.importDialog.urlPlaceholder')}
+              mono
+            />
+          </FormField>
+
+          <FormField label={t('ssh.importDialog.passphraseLabel')}>
+            <FormInput
+              value={passphrase}
+              onChange={onPassphraseChange}
+              type="password"
+              placeholder={t('ssh.importDialog.passphrasePlaceholder')}
+            />
+          </FormField>
+
+          {/* Clear warning */}
+          <Box
+            sx={{
+              fontSize: '12.5px',
+              lineHeight: 1.6,
+              color: C.red,
+              bgcolor: 'rgba(220,38,38,.07)',
+              border: `1px solid rgba(220,38,38,.22)`,
+              borderRadius: '10px',
+              px: '12px',
+              py: '10px',
+              fontFamily: C.sansStack,
+            }}
+          >
+            {t('ssh.importDialog.warning')}
+          </Box>
+        </Box>
+
+        {/* Footer */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '8px',
+            px: '24px',
+            py: '18px',
+            borderTop: `1px solid ${C.metricsBarBorder}`,
+          }}
+        >
+          <SecondaryBtn onClick={onClose} disabled={importing}>
+            {t('ssh.actions.cancel')}
+          </SecondaryBtn>
+          <PrimaryBtn onClick={onConfirm}>
+            {importing
+              ? t('ssh.importDialog.importing')
+              : t('ssh.importDialog.confirm')}
+          </PrimaryBtn>
+        </Box>
+      </Box>
+    </Modal>
+  )
+}
+
+// ─── Export dialog (passphrase-encrypt current servers to a file) ────────────
+
+interface ExportDialogProps {
+  open: boolean
+  passphrase: string
+  exporting: boolean
+  onPassphraseChange: (v: string) => void
+  onConfirm: () => void
+  onClose: () => void
+}
+
+function ExportDialog({
+  open,
+  passphrase,
+  exporting,
+  onPassphraseChange,
+  onConfirm,
+  onClose,
+}: ExportDialogProps) {
+  const { t } = useTranslation()
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      sx={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'auto',
+      }}
+      slotProps={{
+        backdrop: {
+          sx: {
+            background: 'rgba(20,20,22,.42)',
+            backdropFilter: 'blur(2px)',
+          },
+        },
+      }}
+    >
+      <Box
+        sx={{
+          width: 480,
+          maxWidth: 'calc(100vw - 32px)',
+          bgcolor: C.card,
+          borderRadius: '16px',
+          boxShadow: '0 24px 64px rgba(0,0,0,.3)',
+          overflow: 'hidden',
+          outline: 'none',
+          m: 'auto',
+          animation: open ? 'scc-pop .2s cubic-bezier(.16,1,.3,1)' : 'none',
+        }}
+      >
+        {/* Header */}
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            px: '24px',
+            pt: '22px',
+            pb: '18px',
+          }}
+        >
+          <Typography
+            sx={{
+              fontSize: '17px',
+              fontWeight: 650,
+              color: C.textPrimary,
+              letterSpacing: '-.01em',
+              fontFamily: C.sansStack,
+            }}
+          >
+            {t('ssh.exportDialog.title')}
+          </Typography>
+          <ActionBtn onClick={onClose}>
+            <CloseRoundedIcon sx={{ fontSize: 16 }} />
+          </ActionBtn>
+        </Box>
+
+        {/* Body */}
+        <Box
+          sx={{
+            px: '24px',
+            pb: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '15px',
+          }}
+        >
+          <FormField label={t('ssh.exportDialog.passphraseLabel')}>
+            <FormInput
+              value={passphrase}
+              onChange={onPassphraseChange}
+              type="password"
+              placeholder={t('ssh.exportDialog.passphrasePlaceholder')}
+            />
+          </FormField>
+
+          <Box
+            sx={{
+              fontSize: '12.5px',
+              lineHeight: 1.6,
+              color: C.textMuted,
+              bgcolor: '#f7f7f8',
+              border: `1px solid ${C.cardBorder}`,
+              borderRadius: '10px',
+              px: '12px',
+              py: '10px',
+              fontFamily: C.sansStack,
+            }}
+          >
+            {t('ssh.exportDialog.hint')}
+          </Box>
+        </Box>
+
+        {/* Footer */}
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: '8px',
+            px: '24px',
+            py: '18px',
+            borderTop: `1px solid ${C.metricsBarBorder}`,
+          }}
+        >
+          <SecondaryBtn onClick={onClose} disabled={exporting}>
+            {t('ssh.actions.cancel')}
+          </SecondaryBtn>
+          <PrimaryBtn onClick={onConfirm}>
+            {exporting
+              ? t('ssh.exportDialog.exporting')
+              : t('ssh.exportDialog.confirm')}
+          </PrimaryBtn>
+        </Box>
+      </Box>
+    </Modal>
+  )
+}
+
 // ─── Log dialog (behavior unchanged, base styling) ───────────────────────────
 
 const LEVEL_COLOR: Record<ISshLogLevel, string> = {
@@ -1208,6 +1510,13 @@ const SshPage = () => {
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<SshForm>(emptyForm)
   const [logServer, setLogServer] = useState<ISshServer | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
+  const [importUrl, setImportUrl] = useState('')
+  const [importPassphrase, setImportPassphrase] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exportPassphrase, setExportPassphrase] = useState('')
+  const [exporting, setExporting] = useState(false)
 
   const prevStatsRef = useRef<Record<string, ISshTunnelStats>>({})
   const prevPollAtRef = useRef<Record<string, number>>({})
@@ -1293,6 +1602,66 @@ const SshPage = () => {
       await refreshStats()
     } catch (err) {
       showNotice('error', `${err}`)
+    }
+  })
+
+  const onRestartAll = useLockFn(async () => {
+    try {
+      await restartAllSshTunnels()
+      await refreshServers()
+      await refreshStats()
+    } catch (err) {
+      showNotice('error', `${err}`)
+    }
+  })
+
+  const onConfirmImport = useLockFn(async () => {
+    const url = importUrl.trim()
+    if (!url) {
+      showNotice('error', t('ssh.errors.importUrlRequired'))
+      return
+    }
+    try {
+      setImporting(true)
+      // 后端会先清空现有全部配置，再导入并按状态启动
+      const count = await importSshServers(
+        url,
+        importPassphrase.trim() || undefined,
+      )
+      setImportOpen(false)
+      setImportUrl('')
+      setImportPassphrase('')
+      await refreshServers()
+      await refreshStats()
+      showNotice('success', t('ssh.importSuccess', { count }))
+    } catch (err) {
+      showNotice('error', `${err}`)
+    } finally {
+      setImporting(false)
+    }
+  })
+
+  const onConfirmExport = useLockFn(async () => {
+    const passphrase = exportPassphrase.trim()
+    if (!passphrase) {
+      showNotice('error', t('ssh.errors.passphraseRequired'))
+      return
+    }
+    const savePath = await save({
+      defaultPath: 'ssh-tunnels.cvssh',
+      filters: [{ name: 'Encrypted SSH Config', extensions: ['cvssh'] }],
+    })
+    if (!savePath || Array.isArray(savePath)) return // 用户取消保存对话框
+    try {
+      setExporting(true)
+      await exportSshServers(savePath, passphrase)
+      setExportOpen(false)
+      setExportPassphrase('')
+      showNotice('success', t('ssh.exportSuccess'))
+    } catch (err) {
+      showNotice('error', `${err}`)
+    } finally {
+      setExporting(false)
     }
   })
 
@@ -1437,8 +1806,34 @@ const SshPage = () => {
 
           <Box sx={{ flex: 1 }} data-tauri-drag-region />
 
-          <SecondaryBtn onClick={onStartAll} disabled={allEnabled}>
-            {t('ssh.startAll')}
+          <SecondaryBtn
+            onClick={() => setExportOpen(true)}
+            disabled={servers.length === 0}
+          >
+            <Box
+              component="span"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            >
+              <FileUploadRoundedIcon sx={{ fontSize: 15 }} />
+              {t('ssh.export')}
+            </Box>
+          </SecondaryBtn>
+
+          <SecondaryBtn onClick={() => setImportOpen(true)}>
+            <Box
+              component="span"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}
+            >
+              <FileDownloadRoundedIcon sx={{ fontSize: 15 }} />
+              {t('ssh.import')}
+            </Box>
+          </SecondaryBtn>
+
+          <SecondaryBtn
+            onClick={allEnabled ? onRestartAll : onStartAll}
+            disabled={servers.length === 0}
+          >
+            {allEnabled ? t('ssh.restartAll') : t('ssh.startAll')}
           </SecondaryBtn>
 
           <Box
@@ -1515,6 +1910,32 @@ const SshPage = () => {
         key={logServer?.uid ?? 'none'}
         server={logServer}
         onClose={() => setLogServer(null)}
+      />
+
+      <ImportDialog
+        open={importOpen}
+        url={importUrl}
+        passphrase={importPassphrase}
+        importing={importing}
+        onUrlChange={setImportUrl}
+        onPassphraseChange={setImportPassphrase}
+        onConfirm={onConfirmImport}
+        onClose={() => {
+          if (importing) return
+          setImportOpen(false)
+        }}
+      />
+
+      <ExportDialog
+        open={exportOpen}
+        passphrase={exportPassphrase}
+        exporting={exporting}
+        onPassphraseChange={setExportPassphrase}
+        onConfirm={onConfirmExport}
+        onClose={() => {
+          if (exporting) return
+          setExportOpen(false)
+        }}
       />
     </>
   )

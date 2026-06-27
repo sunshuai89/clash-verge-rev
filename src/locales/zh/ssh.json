@@ -3,6 +3,29 @@
   "hint": "每个开启的隧道会在 127.0.0.1:<本地端口> 起一个 SOCKS5 监听。在 profile 中用 socks5 节点指向该端口即可让流量经 SSH 转发。",
   "add": "新增",
   "startAll": "全部开启",
+  "restartAll": "全部重启",
+  "import": "导入",
+  "export": "导出",
+  "importSuccess": "已导入 {{count}} 个隧道服务器",
+  "exportSuccess": "已导出加密配置",
+  "importDialog": {
+    "title": "导入隧道服务器",
+    "urlLabel": "订阅链接",
+    "urlPlaceholder": "https://example.com/ssh-tunnels.yaml",
+    "passphraseLabel": "口令（仅加密配置需要）",
+    "passphrasePlaceholder": "明文配置可留空",
+    "warning": "导入将清空当前全部 SSH 服务器，并替换为该链接中的服务器；隧道会按文件中各服务器的状态自动启动或关闭。此操作不可恢复。",
+    "confirm": "清空并导入",
+    "importing": "导入中…"
+  },
+  "exportDialog": {
+    "title": "导出隧道服务器",
+    "passphraseLabel": "口令",
+    "passphrasePlaceholder": "用于加密配置文件",
+    "hint": "全部服务器（含密码）将用此口令加密（Argon2id + AES-256-GCM）为可移植文件，便于托管后在别处导入。请牢记口令，丢失后无法恢复。",
+    "confirm": "加密并保存",
+    "exporting": "导出中…"
+  },
   "localPort": "本地 SOCKS5",
   "saved": "已保存",
   "deleted": "已删除",
@@ -29,7 +52,7 @@
   },
   "field": {
     "name": "名称",
-    "namePlaceholder": "例如 VMISS",
+    "namePlaceholder": "例如 Server",
     "host": "服务器 IP / 域名",
     "port": "SSH 端口",
     "username": "用户名",
@@ -61,6 +84,8 @@
   "errors": {
     "required": "服务器地址与用户名为必填",
     "passwordRequired": "密码为必填",
-    "invalidPort": "本地端口无效"
+    "invalidPort": "本地端口无效",
+    "importUrlRequired": "请输入导入链接",
+    "passphraseRequired": "请输入口令"
   }
 }

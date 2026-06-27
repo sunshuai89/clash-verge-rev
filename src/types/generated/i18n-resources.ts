@@ -192,7 +192,6 @@ export interface TranslationResources {
             rules: string
             settings: string
             ssh: string
-            unlock: string
           }
         }
       }
@@ -1375,10 +1374,22 @@ export interface TranslationResources {
         editTitle: string
       }
       errors: {
+        importUrlRequired: string
         invalidPort: string
+        passphraseRequired: string
         passwordRequired: string
         required: string
       }
+      export: string
+      exportDialog: {
+        confirm: string
+        exporting: string
+        hint: string
+        passphraseLabel: string
+        passphrasePlaceholder: string
+        title: string
+      }
+      exportSuccess: string
       field: {
         authKey: string
         authPassword: string
@@ -1394,6 +1405,18 @@ export interface TranslationResources {
         username: string
       }
       hint: string
+      import: string
+      importDialog: {
+        confirm: string
+        importing: string
+        passphraseLabel: string
+        passphrasePlaceholder: string
+        title: string
+        urlLabel: string
+        urlPlaceholder: string
+        warning: string
+      }
+      importSuccess: string
       localPort: string
       logs: {
         autoScroll: string
@@ -1410,6 +1433,7 @@ export interface TranslationResources {
         rate: string
         upload: string
       }
+      restartAll: string
       saved: string
       startAll: string
       status: {
@@ -1445,33 +1469,6 @@ export interface TranslationResources {
           testAll: string
         }
         title: string
-      }
-      statuses: {
-        test: {
-          completed: string
-          disallowedIsp: string
-          failed: string
-          failedNetwork: string
-          no: string
-          noDisney: string
-          originalsOnly: string
-          pending: string
-          unsupportedRegion: string
-          yes: string
-        }
-      }
-      unlock: {
-        page: {
-          actions: {
-            testing: string
-          }
-          empty: string
-          messages: {
-            detectionFailedWithName: string
-            detectionTimeout: string
-          }
-          title: string
-        }
       }
     }
   }

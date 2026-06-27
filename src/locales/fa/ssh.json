@@ -3,6 +3,29 @@
   "hint": "Each enabled tunnel opens a local SOCKS5 listener at 127.0.0.1:<local port>. Point a socks5 node in your profile at that port to route traffic through SSH.",
   "add": "New",
   "startAll": "Start All",
+  "restartAll": "Restart All",
+  "import": "Import",
+  "export": "Export",
+  "importSuccess": "Imported {{count}} tunnel servers",
+  "exportSuccess": "Encrypted config exported",
+  "importDialog": {
+    "title": "Import Tunnel Servers",
+    "urlLabel": "Subscription URL",
+    "urlPlaceholder": "https://example.com/ssh-tunnels.yaml",
+    "passphraseLabel": "Passphrase (encrypted config only)",
+    "passphrasePlaceholder": "Leave empty for plaintext config",
+    "warning": "Importing will clear all existing SSH servers and replace them with the ones from this URL. Tunnels will start or stop according to each server's status in the file. This cannot be undone.",
+    "confirm": "Clear & Import",
+    "importing": "Importing…"
+  },
+  "exportDialog": {
+    "title": "Export Tunnel Servers",
+    "passphraseLabel": "Passphrase",
+    "passphrasePlaceholder": "Used to encrypt the config file",
+    "hint": "All servers (including passwords) are encrypted with this passphrase (Argon2id + AES-256-GCM) into a portable file you can host and import elsewhere. Keep the passphrase safe — it cannot be recovered if lost.",
+    "confirm": "Encrypt & Save",
+    "exporting": "Exporting…"
+  },
   "localPort": "Local SOCKS5",
   "saved": "Saved",
   "deleted": "Deleted",
@@ -29,7 +52,7 @@
   },
   "field": {
     "name": "Name",
-    "namePlaceholder": "e.g. VMISS",
+    "namePlaceholder": "e.g. Server",
     "host": "Host / IP",
     "port": "SSH Port",
     "username": "Username",
@@ -61,6 +84,8 @@
   "errors": {
     "required": "Host and username are required",
     "passwordRequired": "Password is required",
-    "invalidPort": "Invalid local port"
+    "invalidPort": "Invalid local port",
+    "importUrlRequired": "Please enter an import URL",
+    "passphraseRequired": "Please enter a passphrase"
   }
 }

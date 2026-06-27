@@ -598,6 +598,23 @@ export async function startAllSshTunnels() {
   return invoke<void>('start_all_ssh_tunnels')
 }
 
+export async function restartAllSshTunnels() {
+  return invoke<void>('restart_all_ssh_tunnels')
+}
+
+/**
+ * 通过订阅链接导入隧道服务器（会清空现有配置），返回导入数量。
+ * passphrase 仅在链接指向口令加密的 bundle 时需要；明文配置可留空。
+ */
+export async function importSshServers(url: string, passphrase?: string) {
+  return invoke<number>('import_ssh_servers', { url, passphrase })
+}
+
+/** 将当前全部隧道服务器用口令加密后写入 path（后端写文件） */
+export async function exportSshServers(path: string, passphrase: string) {
+  return invoke<void>('export_ssh_servers', { path, passphrase })
+}
+
 export async function stopSshTunnel(uid: string) {
   return invoke<void>('stop_ssh_tunnel', { uid })
 }

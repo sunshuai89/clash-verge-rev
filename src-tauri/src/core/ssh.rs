@@ -726,9 +726,10 @@ async fn run_tunnel(
     log_tunnel(&uid, "info", "隧道已停止").await;
 }
 
-/// 通过已建立的 SSH 会话发起 direct-tcpip 请求并测量往返延迟，同时充当主动健康
+/// 通过已建立的 SSH 会话发送 keepalive ping 并测量往返延迟，同时充当主动健康
 /// 检测：连续多次探测超时即判定链路假死，主动触发重连，释放并重建隧道。
-/// 比直接探测 TCP:22 更准确，且不会在服务端制造多余的连接日志。
+/// 用 SSH 全局保活请求（keepalive@openssh.com）测往返，不开通道、不碰端口，
+/// 比 direct-tcpip 探测更轻、更安静，也不会在服务端留转发日志或触发安全策略。
 async fn session_latency_probe(
     uid: Arc<str>,
     session: Arc<client::Handle<Client>>,
@@ -737,6 +738,7 @@ async fn session_latency_probe(
     force_reconnect: Arc<Notify>,
 ) {
     let mut failures: u32 = 0;
+    let total_bytes = || metrics.up.load(Ordering::Relaxed) + metrics.down.load(Ordering::Relaxed);
     loop {
         tokio::select! {
             _ = tokio::time::sleep(PROBE_INTERVAL) => {}
@@ -746,21 +748,28 @@ async fn session_latency_probe(
             break;
         }
         let start = Instant::now();
-        // 向远端本地回环的 1 号端口发起 channel open；该端口通常未监听，
-        // 服务端会立即返回 CHANNEL_OPEN_FAILURE，但往返时间即反映 SSH 链路延迟。
-        // 此处 Ok(_) 表示完成了一次往返（无论成功还是 OPEN_FAILURE），
-        // Err(_) 表示在 PROBE_TIMEOUT 内毫无响应 —— 即链路疑似假死。
-        let result = tokio::time::timeout(
-            PROBE_TIMEOUT,
-            session.channel_open_direct_tcpip("127.0.0.1", 1, "127.0.0.1", 0),
-        )
-        .await;
+        // 探测窗口起点的累计字节，用于在探测超时时判断链路是否仍在传输数据。
+        let bytes_before = total_bytes();
+        // 发一个 keepalive ping 并等待对端回执（pong）。服务端无论回 SUCCESS 还是
+        // FAILURE 都算一次完整往返，往返时间即反映 SSH 链路延迟。
+        // 此处 Ok(_) 表示完成了一次往返，Err(_) 表示在 PROBE_TIMEOUT 内毫无回执
+        // —— 即链路疑似假死。
+        let result = tokio::time::timeout(PROBE_TIMEOUT, session.send_ping()).await;
         match result {
             Ok(_) => {
                 failures = 0;
                 metrics.set_latency(Some(start.elapsed().as_millis() as u64));
             }
             Err(_) => {
+                // 探测超时，但若窗口内仍有真实字节进出，则链路显然是活的：
+                // 大流量（尤其下载）打满链路会造成 bufferbloat，探测用的小控制帧
+                // 排在大量数据之后迟迟回不来，并非链路假死。此时绝不能判死重连，
+                // 否则会反复掐断正在传输的连接 —— 即「一跑流量就每几分钟断一次」。
+                if total_bytes() != bytes_before {
+                    failures = 0;
+                    metrics.set_latency(None);
+                    continue;
+                }
                 failures += 1;
                 metrics.set_latency(None);
                 if failures >= MAX_PROBE_FAILURES {

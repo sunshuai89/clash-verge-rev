@@ -5,6 +5,7 @@ use crate::{
 use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use clash_verge_logging::{Type, logging};
+use futures::future;
 use russh::client;
 use serde::Serialize;
 use std::{
@@ -16,7 +17,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use futures::future;
 use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
     net::{TcpListener, TcpStream},
@@ -80,6 +80,19 @@ pub struct TunnelStats {
 /// 每隧道日志环形缓冲的最大条数
 const MAX_LOGS_PER_TUNNEL: usize = 500;
 
+/// live 日志推送的合批窗口：高连接量下（如「全部开启」）按此窗口合并后
+/// 一次性推送给前端，避免逐连接 emit 打爆 WebView IPC 导致界面卡死。
+const LOG_EMIT_INTERVAL: Duration = Duration::from_millis(150);
+
+/// 某隧道待推送 live 日志的合批状态
+#[derive(Default)]
+struct LogEmitState {
+    /// 本窗口内累积的日志条目（已序列化）
+    queue: Vec<serde_json::Value>,
+    /// 是否已有一个 flush 任务在排队
+    scheduled: bool,
+}
+
 /// 一条隧道日志（推送给前端，不落盘）
 #[derive(Debug, Clone, Serialize)]
 pub struct SshLogEntry {
@@ -142,6 +155,8 @@ pub struct SshManager {
     config: Mutex<ISshConfig>,
     /// 每隧道的日志环形缓冲（按 uid，仅内存，不落盘）
     logs: Mutex<HashMap<String, VecDeque<SshLogEntry>>>,
+    /// 每隧道 live 日志推送的合批状态（按 uid）
+    log_emit: Mutex<HashMap<String, LogEmitState>>,
 }
 
 impl SshManager {
@@ -150,6 +165,7 @@ impl SshManager {
             tunnels: Mutex::new(HashMap::new()),
             config: Mutex::new(ISshConfig::default()),
             logs: Mutex::new(HashMap::new()),
+            log_emit: Mutex::new(HashMap::new()),
         }
     }
 
@@ -161,18 +177,52 @@ impl SshManager {
             message: message.into(),
         };
         let value = serde_json::to_value(&entry).unwrap_or(serde_json::Value::Null);
-        let mut logs = self.logs.lock().await;
-        let buf = logs.entry(uid.to_string()).or_default();
-        if buf.len() >= MAX_LOGS_PER_TUNNEL {
-            buf.pop_front();
+        {
+            let mut logs = self.logs.lock().await;
+            let buf = logs.entry(uid.to_string()).or_default();
+            if buf.len() >= MAX_LOGS_PER_TUNNEL {
+                buf.pop_front();
+            }
+            buf.push_back(entry);
         }
-        buf.push_back(entry);
-        drop(logs);
+
+        // live 推送做 per-uid 合批节流：环形缓冲（上方）始终记录全量日志，
+        // 但前端 emit 按 LOG_EMIT_INTERVAL 合并，避免高连接量下逐条 emit
+        // 打爆 WebView IPC 导致界面卡死（如「全部开启」时）。
+        let need_schedule = {
+            let mut pending = self.log_emit.lock().await;
+            let st = pending.entry(uid.to_string()).or_default();
+            st.queue.push(value);
+            if st.scheduled {
+                false
+            } else {
+                st.scheduled = true;
+                true
+            }
+        };
+        if !need_schedule {
+            return;
+        }
+
         // 使用 spawn 发送事件，避免在隧道任务中同步调用 window.emit()，
         // 防止与主线程 WebKit IPC 处理路径竞争内部互斥锁导致死锁。
         let uid = uid.to_string();
         tokio::spawn(async move {
-            crate::core::handle::Handle::notify_ssh_tunnel_log(&uid, value);
+            tokio::time::sleep(LOG_EMIT_INTERVAL).await;
+            let manager = SshManager::global();
+            let batch = {
+                let mut pending = manager.log_emit.lock().await;
+                match pending.get_mut(&uid) {
+                    Some(st) => {
+                        st.scheduled = false;
+                        std::mem::take(&mut st.queue)
+                    }
+                    None => Vec::new(),
+                }
+            };
+            if !batch.is_empty() {
+                crate::core::handle::Handle::notify_ssh_tunnel_logs(&uid, batch);
+            }
         });
     }
 
@@ -356,10 +406,31 @@ impl SshManager {
         for (_uid, handle) in &handles {
             handle.cancel.cancel();
         }
-        let _ = future::join_all(handles.into_iter().map(|(_uid, h)| {
-            tokio::time::timeout(Duration::from_secs(5), h.task)
-        }))
+        let _ = future::join_all(
+            handles
+                .into_iter()
+                .map(|(_uid, h)| tokio::time::timeout(Duration::from_secs(5), h.task)),
+        )
         .await;
+    }
+
+    /// 启用并启动全部隧道（前端「全部开启」）：先一次性落盘，再逐个启动。
+    /// 避免前端并发调用 start_ssh_tunnel 导致同一配置文件被并发写入而损坏。
+    pub async fn enable_and_start_all(&self) -> Result<()> {
+        let uids: Vec<String> = {
+            let mut cfg = self.config.lock().await;
+            for server in cfg.servers.iter_mut() {
+                server.enabled = true;
+            }
+            cfg.servers.iter().map(|s| s.uid.to_string()).collect()
+        };
+        self.persist().await?;
+        for uid in uids {
+            if let Err(e) = self.start(&uid).await {
+                logging!(error, Type::Core, "启动 SSH 隧道 [{uid}] 失败: {e}");
+            }
+        }
+        Ok(())
     }
 
     /// 启动所有 enabled = true 的隧道（开机恢复）
@@ -511,12 +582,7 @@ async fn run_tunnel(
             return;
         }
     };
-    log_tunnel(
-        &uid,
-        "info",
-        format!("本地监听就绪 127.0.0.1:{}", server.local_port),
-    )
-    .await;
+    log_tunnel(&uid, "info", format!("本地监听就绪 127.0.0.1:{}", server.local_port)).await;
 
     // 连接循环：固定 3 秒重连，直到用户主动停止
     loop {
@@ -527,10 +593,7 @@ async fn run_tunnel(
         log_tunnel(
             &uid,
             "info",
-            format!(
-                "正在连接 {}@{}:{} ...",
-                server.username, server.host, server.port
-            ),
+            format!("正在连接 {}@{}:{} ...", server.username, server.host, server.port),
         )
         .await;
         // 使用 select! 使 SSH 连接阶段可被取消信号中断，
@@ -586,11 +649,7 @@ async fn run_tunnel(
 
 /// 通过已建立的 SSH 会话发起 direct-tcpip 请求并测量往返延迟。
 /// 比直接探测 TCP:22 更准确，且不会在服务端制造多余的连接日志。
-async fn session_latency_probe(
-    session: Arc<client::Handle<Client>>,
-    metrics: Arc<TunnelMetrics>,
-    cancel: Arc<Cancel>,
-) {
+async fn session_latency_probe(session: Arc<client::Handle<Client>>, metrics: Arc<TunnelMetrics>, cancel: Arc<Cancel>) {
     loop {
         tokio::select! {
             _ = tokio::time::sleep(Duration::from_secs(10)) => {}
@@ -625,12 +684,7 @@ async fn bind_listener(uid: &str, local_port: u16, cancel: &Cancel) -> Option<Tc
         match TcpListener::bind(&addr).await {
             Ok(listener) => return Some(listener),
             Err(e) => {
-                log_tunnel(
-                    uid,
-                    "warn",
-                    format!("绑定 {addr} 失败（第 {} 次）: {e}", attempt + 1),
-                )
-                .await;
+                log_tunnel(uid, "warn", format!("绑定 {addr} 失败（第 {} 次）: {e}", attempt + 1)).await;
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(500)) => {}
                     _ = cancel.cancelled() => return None,

@@ -69,10 +69,10 @@ impl Handle {
         });
     }
 
-    pub fn notify_ssh_tunnel_log(uid: &str, entry: serde_json::Value) {
-        Self::send_event(FrontendEvent::SshTunnelLog {
+    pub fn notify_ssh_tunnel_logs(uid: &str, entries: Vec<serde_json::Value>) {
+        Self::send_event(FrontendEvent::SshTunnelLogs {
             uid: uid.into(),
-            entry,
+            entries,
         });
     }
 

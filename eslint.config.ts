@@ -11,6 +11,11 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default defineConfig([
+  // Vendored third-party code (e.g. the patched tauri-plugin-mihomo) is not
+  // part of this project's tsconfig and must not be linted.
+  {
+    ignores: ['vendor/**'],
+  },
   {
     files: ['**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
 

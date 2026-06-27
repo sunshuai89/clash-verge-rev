@@ -594,6 +594,10 @@ export async function startSshTunnel(uid: string) {
   return invoke<void>('start_ssh_tunnel', { uid })
 }
 
+export async function startAllSshTunnels() {
+  return invoke<void>('start_all_ssh_tunnels')
+}
+
 export async function stopSshTunnel(uid: string) {
   return invoke<void>('stop_ssh_tunnel', { uid })
 }

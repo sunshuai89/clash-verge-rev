@@ -9,13 +9,30 @@ use tauri::{Emitter as _, WebviewWindow};
 pub enum FrontendEvent<'a> {
     RefreshClash,
     RefreshVerge,
-    NoticeMessage { status: &'a str, message: String },
-    ProfileChanged { current_profile_id: &'a String },
-    TimerUpdated { profile_index: &'a String },
-    ProfileUpdateStarted { uid: &'a String },
-    ProfileUpdateCompleted { uid: &'a String },
-    SshTunnelStatusChanged { uid: String, status: serde_json::Value },
-    SshTunnelLog { uid: String, entry: serde_json::Value },
+    NoticeMessage {
+        status: &'a str,
+        message: String,
+    },
+    ProfileChanged {
+        current_profile_id: &'a String,
+    },
+    TimerUpdated {
+        profile_index: &'a String,
+    },
+    ProfileUpdateStarted {
+        uid: &'a String,
+    },
+    ProfileUpdateCompleted {
+        uid: &'a String,
+    },
+    SshTunnelStatusChanged {
+        uid: String,
+        status: serde_json::Value,
+    },
+    SshTunnelLogs {
+        uid: String,
+        entries: Vec<serde_json::Value>,
+    },
 }
 
 #[derive(Debug)]
@@ -46,8 +63,8 @@ impl NotificationSystem {
             FrontendEvent::SshTunnelStatusChanged { uid, status } => {
                 ("verge://ssh-tunnel-status", Ok(json!({ "uid": uid, "status": status })))
             }
-            FrontendEvent::SshTunnelLog { uid, entry } => {
-                ("verge://ssh-tunnel-log", Ok(json!({ "uid": uid, "entry": entry })))
+            FrontendEvent::SshTunnelLogs { uid, entries } => {
+                ("verge://ssh-tunnel-log", Ok(json!({ "uid": uid, "entries": entries })))
             }
         }
     }

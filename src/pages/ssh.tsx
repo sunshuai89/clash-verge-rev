@@ -34,6 +34,7 @@ import {
   getSshTunnelLogs,
   getSshTunnelStats,
   saveSshServer,
+  startAllSshTunnels,
   startSshTunnel,
   stopSshTunnel,
 } from '@/services/cmds'
@@ -81,7 +82,6 @@ function formatBytes(bytes: number): string {
   const [value, unit] = parseTraffic(bytes)
   return `${value}${unit === 'B' ? 'B' : unit[0]}`
 }
-
 
 // ─── State shapes ─────────────────────────────────────────────────────────────
 
@@ -311,7 +311,15 @@ function MetricCell({
 }
 
 const MetricDivider = () => (
-  <Box sx={{ width: '1px', bgcolor: C.divider, alignSelf: 'stretch', my: '6px', flexShrink: 0 }} />
+  <Box
+    sx={{
+      width: '1px',
+      bgcolor: C.divider,
+      alignSelf: 'stretch',
+      my: '6px',
+      flexShrink: 0,
+    }}
+  />
 )
 
 function MetricNum({
@@ -366,7 +374,8 @@ function TunnelCard({
   const { t } = useTranslation()
   const state = stats.status.state
   const isRunning = state === 'Running'
-  const isActive = isRunning || state === 'Connecting' || state === 'Reconnecting'
+  const isActive =
+    isRunning || state === 'Connecting' || state === 'Reconnecting'
 
   const sshAddr = `${server.username}@${server.host}:${server.port}`
   const socks5Addr = `127.0.0.1:${server.local_port}`
@@ -408,7 +417,9 @@ function TunnelCard({
             }}
           >
             {/* Animated status dot */}
-            <Box sx={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}>
+            <Box
+              sx={{ position: 'relative', width: 8, height: 8, flexShrink: 0 }}
+            >
               <Box
                 sx={{
                   width: 8,
@@ -499,7 +510,9 @@ function TunnelCard({
           }}
         >
           <SshSwitch checked={server.enabled} onChange={onToggle} />
-          <Box sx={{ width: '1px', height: 28, bgcolor: '#e4e4e7', flexShrink: 0 }} />
+          <Box
+            sx={{ width: '1px', height: 28, bgcolor: '#e4e4e7', flexShrink: 0 }}
+          />
           <ActionBtn onClick={onLog} title={t('ssh.actions.logs')}>
             <SubjectRoundedIcon sx={{ fontSize: 14 }} />
           </ActionBtn>
@@ -550,12 +563,17 @@ function TunnelCard({
             <>
               <Box
                 component="span"
-                sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '2px',
+                }}
               >
-                <ArrowUpwardRoundedIcon
-                  sx={{ fontSize: 10, color: C.green }}
+                <ArrowUpwardRoundedIcon sx={{ fontSize: 10, color: C.green }} />
+                <MetricNum
+                  value={formatBytes(ext.upRate)}
+                  color={C.textPrimary}
                 />
-                <MetricNum value={formatBytes(ext.upRate)} color={C.textPrimary} />
               </Box>
               <Box
                 component="span"
@@ -569,7 +587,10 @@ function TunnelCard({
                 <ArrowDownwardRoundedIcon
                   sx={{ fontSize: 10, color: C.textMuted }}
                 />
-                <MetricNum value={formatBytes(ext.downRate)} color={C.textPrimary} />
+                <MetricNum
+                  value={formatBytes(ext.downRate)}
+                  color={C.textPrimary}
+                />
               </Box>
             </>
           ) : (
@@ -585,12 +606,22 @@ function TunnelCard({
             <>
               <Box
                 component="span"
-                sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}
+                sx={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '2px',
+                }}
               >
                 <ArrowUpwardRoundedIcon
-                  sx={{ fontSize: 10, color: isRunning ? C.green : C.textMuted }}
+                  sx={{
+                    fontSize: 10,
+                    color: isRunning ? C.green : C.textMuted,
+                  }}
                 />
-                <MetricNum value={formatBytes(stats.up)} color={C.textSecondary} />
+                <MetricNum
+                  value={formatBytes(stats.up)}
+                  color={C.textSecondary}
+                />
               </Box>
               <Box
                 component="span"
@@ -604,14 +635,16 @@ function TunnelCard({
                 <ArrowDownwardRoundedIcon
                   sx={{ fontSize: 10, color: C.textMuted }}
                 />
-                <MetricNum value={formatBytes(stats.down)} color={C.textSecondary} />
+                <MetricNum
+                  value={formatBytes(stats.down)}
+                  color={C.textSecondary}
+                />
               </Box>
             </>
           ) : (
             <MetricNum value="—" color={C.textDisabled} />
           )}
         </MetricCell>
-
       </Box>
     </Box>
   )
@@ -769,7 +802,10 @@ function SecondaryBtn({
         fontFamily: C.sansStack,
         flexShrink: 0,
         transition: 'all .12s',
-        '&:not(:disabled):hover': { bgcolor: '#f4f4f5', borderColor: '#d4d4d8' },
+        '&:not(:disabled):hover': {
+          bgcolor: '#f4f4f5',
+          borderColor: '#d4d4d8',
+        },
       }}
     >
       {children}
@@ -1002,7 +1038,9 @@ function AddEditDialog({
             borderTop: `1px solid ${C.metricsBarBorder}`,
           }}
         >
-          <SecondaryBtn onClick={onClose}>{t('ssh.actions.cancel')}</SecondaryBtn>
+          <SecondaryBtn onClick={onClose}>
+            {t('ssh.actions.cancel')}
+          </SecondaryBtn>
           <PrimaryBtn onClick={onSave}>
             {editing ? t('ssh.actions.save') : t('ssh.actions.addTunnel')}
           </PrimaryBtn>
@@ -1042,15 +1080,19 @@ function SshLogDialog({ server, onClose }: SshLogDialogProps) {
     let unlisten: (() => void) | undefined
 
     void getSshTunnelLogs(uid).then((list) => {
-      if (active)
-        setLogs(list.map((e) => ({ ...e, _id: seqRef.current++ })))
+      if (active) setLogs(list.map((e) => ({ ...e, _id: seqRef.current++ })))
     })
-    void listen<{ uid: string; entry: ISshLogEntry }>(
+    void listen<{ uid: string; entries: ISshLogEntry[] }>(
       'verge://ssh-tunnel-log',
       (ev) => {
         if (ev.payload.uid !== uid) return
+        const incoming = ev.payload.entries
+        if (!incoming?.length) return
         setLogs((prev) => {
-          const next = [...prev, { ...ev.payload.entry, _id: seqRef.current++ }]
+          const next = [
+            ...prev,
+            ...incoming.map((e) => ({ ...e, _id: seqRef.current++ })),
+          ]
           return next.length > MAX_LOG_LINES
             ? next.slice(next.length - MAX_LOG_LINES)
             : next
@@ -1245,9 +1287,8 @@ const SshPage = () => {
 
   const onStartAll = useLockFn(async () => {
     try {
-      await Promise.all(
-        servers.filter((s) => !s.enabled).map((s) => startSshTunnel(s.uid)),
-      )
+      // 后端单次落盘后逐个启动，避免前端并发 start 调用打爆 IPC / 并发写配置
+      await startAllSshTunnels()
       await refreshServers()
       await refreshStats()
     } catch (err) {
@@ -1324,8 +1365,7 @@ const SshPage = () => {
   const patchForm = (patch: Partial<SshForm>) =>
     setForm((prev) => ({ ...prev, ...patch }))
 
-  const allEnabled =
-    servers.length > 0 && servers.every((s) => s.enabled)
+  const allEnabled = servers.length > 0 && servers.every((s) => s.enabled)
 
   return (
     <>
@@ -1439,9 +1479,7 @@ const SshPage = () => {
           {servers.length === 0 ? (
             <BaseEmpty />
           ) : (
-            <Box
-              sx={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
-            >
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
               {servers.map((server) => {
                 const stats = statsMap[server.uid] ?? emptyStats()
                 const ext = extMap[server.uid] ?? emptyExt()

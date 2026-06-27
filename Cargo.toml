@@ -45,6 +45,12 @@ inherits = "fast-release"
 codegen-units = 1
 split-debuginfo = "unpacked"
 
+# Override the upstream git plugin with a vendored copy that adds the `PassRule`
+# proxy type (built-in in mihomo v1.19.x). Without it, deserialization of the
+# whole /proxies response fails and the proxies page renders blank.
+[patch."https://github.com/clash-verge-rev/tauri-plugin-mihomo"]
+tauri-plugin-mihomo = { path = "vendor/tauri-plugin-mihomo" }
+
 [workspace.dependencies]
 clash-verge-draft = { path = "crates/clash-verge-draft" }
 clash-verge-logging = { path = "crates/clash-verge-logging" }

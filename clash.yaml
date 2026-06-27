@@ -6,7 +6,6 @@ mode: rule
 log-level: info
 ipv6: false  # 建议设为 false。虽然你提供的配置开启了，但国内环境 IPv6 极易导致 DNS 泄露被探测
 external-controller: '127.0.0.1:9090'
-global-client-fingerprint: firefox
 
 tun:
   enable: true # 开启 TUN 模式，接管系统级流量，防止侧漏

@@ -241,11 +241,7 @@ pub fn ensure_mihomo_safe_dir() -> Option<PathBuf> {
 pub fn ipc_path() -> Result<PathBuf> {
     ensure_mihomo_safe_dir()
         .map(|base_dir| base_dir.join("verge").join(MIHOMO_IPC_NAME))
-        .or_else(|| {
-            app_home_dir()
-                .ok()
-                .map(|dir| dir.join("verge").join(MIHOMO_IPC_NAME))
-        })
+        .or_else(|| app_home_dir().ok().map(|dir| dir.join("verge").join(MIHOMO_IPC_NAME)))
         .ok_or_else(|| anyhow::anyhow!("Failed to determine ipc path"))
 }
 

@@ -55,6 +55,13 @@ pub async fn start_ssh_tunnel(uid: String) -> CmdResult<()> {
     manager.start(&uid).await.stringify_err()
 }
 
+/// 启用并启动全部隧道（前端「全部开启」）：后端单次落盘后逐个启动，
+/// 避免前端并发调用 start_ssh_tunnel 并发写配置文件
+#[tauri::command]
+pub async fn start_all_ssh_tunnels() -> CmdResult<()> {
+    SshManager::global().enable_and_start_all().await.stringify_err()
+}
+
 /// 停止隧道：运行意图 enabled = false 落盘后停止（终态不重连）
 #[tauri::command]
 pub async fn stop_ssh_tunnel(uid: String) -> CmdResult<()> {

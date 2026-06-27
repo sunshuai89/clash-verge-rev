@@ -497,14 +497,6 @@ async fn run_tunnel(
     )
     .await;
 
-    // 延迟探测：周期性测量到 SSH 服务器的 TCP 连接耗时
-    let probe = tokio::spawn(latency_probe(
-        server.host.to_string(),
-        server.port,
-        Arc::clone(&metrics),
-        Arc::clone(&cancel),
-    ));
-
     let listener = match bind_listener(&uid, server.local_port, &cancel).await {
         Some(listener) => listener,
         None => {
@@ -516,7 +508,6 @@ async fn run_tunnel(
                 log_tunnel(&uid, "error", msg.clone()).await;
                 set_status(&uid, &status, TunnelStatus::Error(msg));
             }
-            probe.abort();
             return;
         }
     };
@@ -553,14 +544,21 @@ async fn run_tunnel(
                 let session = Arc::new(session);
                 set_status(&uid, &status, TunnelStatus::Running);
                 log_tunnel(&uid, "info", "认证成功，隧道已就绪").await;
-                match accept_loop(&uid, &listener, &session, server.local_port, &metrics, &cancel).await {
+                // 通过已建立的 SSH 会话周期性测量往返延迟
+                let probe = tokio::spawn(session_latency_probe(
+                    Arc::clone(&session),
+                    Arc::clone(&metrics),
+                    Arc::clone(&cancel),
+                ));
+                let result = accept_loop(&uid, &listener, &session, server.local_port, &metrics, &cancel).await;
+                probe.abort();
+                metrics.set_latency(None);
+                match result {
                     AcceptEnd::Cancelled => break,
                     AcceptEnd::SessionLost => {
                         if cancel.is_cancelled() {
                             break;
                         }
-                        // 断线期间延迟不可用
-                        metrics.set_latency(None);
                         set_status(&uid, &status, TunnelStatus::Reconnecting);
                         log_tunnel(&uid, "warn", "连接已断开，3 秒后重连").await;
                         if wait_or_cancel(&cancel).await {
@@ -582,32 +580,38 @@ async fn run_tunnel(
         }
     }
 
-    probe.abort();
     set_status(&uid, &status, TunnelStatus::Stopped);
     log_tunnel(&uid, "info", "隧道已停止").await;
 }
 
-/// 周期性测量到 SSH 服务器的 TCP 连接耗时，作为延迟近似值
-async fn latency_probe(host: String, port: u16, metrics: Arc<TunnelMetrics>, cancel: Arc<Cancel>) {
+/// 通过已建立的 SSH 会话发起 direct-tcpip 请求并测量往返延迟。
+/// 比直接探测 TCP:22 更准确，且不会在服务端制造多余的连接日志。
+async fn session_latency_probe(
+    session: Arc<client::Handle<Client>>,
+    metrics: Arc<TunnelMetrics>,
+    cancel: Arc<Cancel>,
+) {
     loop {
-        if cancel.is_cancelled() {
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+            _ = cancel.cancelled() => return,
+        }
+        if session.is_closed() {
             break;
         }
         let start = Instant::now();
-        let measured = match tokio::time::timeout(
+        // 向远端本地回环的 1 号端口发起 channel open；该端口通常未监听，
+        // 服务端会立即返回 CHANNEL_OPEN_FAILURE，但往返时间即反映 SSH 链路延迟。
+        let result = tokio::time::timeout(
             Duration::from_secs(5),
-            TcpStream::connect((host.as_str(), port)),
+            session.channel_open_direct_tcpip("127.0.0.1", 1, "127.0.0.1", 0),
         )
-        .await
-        {
-            Ok(Ok(_stream)) => Some(start.elapsed().as_millis() as u64),
-            _ => None,
+        .await;
+        let measured = match result {
+            Ok(_) => Some(start.elapsed().as_millis() as u64),
+            Err(_) => None, // 超时视为延迟不可用
         };
         metrics.set_latency(measured);
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(5)) => {}
-            _ = cancel.cancelled() => break,
-        }
     }
 }
 

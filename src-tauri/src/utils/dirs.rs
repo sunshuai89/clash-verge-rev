@@ -18,6 +18,19 @@ pub static APP_ID: &str = "io.github.clash-verge-rev.clash-verge-rev.dev";
 #[cfg(feature = "verge-dev")]
 pub static BACKUP_DIR: &str = "clash-verge-rev-backup-dev";
 
+/// mihomo 外部控制器 IPC 端点名称。
+/// dev 与生产构建必须使用不同的端点，否则会共用同一个全局 socket /
+/// 命名管道，导致两个实例抢占同一个核心、并在配置应用失败时互相重启核心，
+/// 使前端连接池连到已失效的 socket 后无法恢复（表现为"内核通信错误"）。
+#[cfg(all(unix, not(feature = "verge-dev")))]
+pub static MIHOMO_IPC_NAME: &str = "verge-mihomo.sock";
+#[cfg(all(unix, feature = "verge-dev"))]
+pub static MIHOMO_IPC_NAME: &str = "verge-mihomo-dev.sock";
+#[cfg(all(windows, not(feature = "verge-dev")))]
+pub static MIHOMO_IPC_NAME: &str = r"\\.\pipe\verge-mihomo";
+#[cfg(all(windows, feature = "verge-dev"))]
+pub static MIHOMO_IPC_NAME: &str = r"\\.\pipe\verge-mihomo-dev";
+
 pub static PORTABLE_FLAG: OnceCell<bool> = OnceCell::new();
 
 pub static CLASH_CONFIG: &str = "config.yaml";
@@ -227,18 +240,18 @@ pub fn ensure_mihomo_safe_dir() -> Option<PathBuf> {
 #[cfg(unix)]
 pub fn ipc_path() -> Result<PathBuf> {
     ensure_mihomo_safe_dir()
-        .map(|base_dir| base_dir.join("verge").join("verge-mihomo.sock"))
+        .map(|base_dir| base_dir.join("verge").join(MIHOMO_IPC_NAME))
         .or_else(|| {
             app_home_dir()
                 .ok()
-                .map(|dir| dir.join("verge").join("verge-mihomo.sock"))
+                .map(|dir| dir.join("verge").join(MIHOMO_IPC_NAME))
         })
         .ok_or_else(|| anyhow::anyhow!("Failed to determine ipc path"))
 }
 
 #[cfg(target_os = "windows")]
 pub fn ipc_path() -> Result<PathBuf> {
-    Ok(PathBuf::from(r"\\.\pipe\verge-mihomo"))
+    Ok(PathBuf::from(MIHOMO_IPC_NAME))
 }
 #[async_trait]
 pub trait PathBufExec {

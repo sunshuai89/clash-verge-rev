@@ -82,26 +82,6 @@ function formatBytes(bytes: number): string {
   return `${value}${unit === 'B' ? 'B' : unit[0]}`
 }
 
-function formatDuration(startedAt: number | null): string {
-  if (startedAt == null) return '—'
-  const s = Math.floor((Date.now() - startedAt) / 1000)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${sec}s`
-  return `${sec}s`
-}
-
-function formatLastActive(lastAt: number | null, state: ISshTunnelState): { text: string; color: string } {
-  const isLive = state === 'Running' || state === 'Connecting' || state === 'Reconnecting'
-  if (isLive) return { text: '刚刚', color: C.green }
-  if (lastAt == null) return { text: '—', color: C.textPlaceholder }
-  const ago = Math.floor((Date.now() - lastAt) / 60000)
-  if (ago < 1) return { text: '刚刚', color: C.textMuted }
-  if (ago < 60) return { text: `${ago} 分钟前`, color: C.textMuted }
-  return { text: `${Math.floor(ago / 60)} 小时前`, color: C.textMuted }
-}
 
 // ─── State shapes ─────────────────────────────────────────────────────────────
 
@@ -115,15 +95,11 @@ const emptyStats = (): ISshTunnelStats => ({
 interface ExtStats {
   upRate: number
   downRate: number
-  startedAt: number | null
-  lastActiveAt: number | null
 }
 
 const emptyExt = (): ExtStats => ({
   upRate: 0,
   downRate: 0,
-  startedAt: null,
-  lastActiveAt: null,
 })
 
 interface SshForm extends ISshServer {
@@ -395,7 +371,6 @@ function TunnelCard({
   const sshAddr = `${server.username}@${server.host}:${server.port}`
   const socks5Addr = `127.0.0.1:${server.local_port}`
   const latColor = latencyColor(stats.latency_ms, isRunning)
-  const lastActive = formatLastActive(ext.lastActiveAt, state)
   const hasTraffic = stats.up > 0 || stats.down > 0
 
   return (
@@ -406,9 +381,8 @@ function TunnelCard({
         borderRadius: '14px',
         boxShadow: '0 1px 2px rgba(0,0,0,.03)',
         overflow: 'hidden',
-        transition: 'box-shadow .15s, transform .15s',
+        transition: 'box-shadow .15s',
         '&:hover': {
-          transform: 'translateY(-1px)',
           boxShadow: '0 5px 16px rgba(0,0,0,.07)',
         },
       }}
@@ -638,33 +612,6 @@ function TunnelCard({
           )}
         </MetricCell>
 
-        <MetricDivider />
-
-        {/* Duration */}
-        <MetricCell label={t('ssh.metrics.duration')} flex={1}>
-          <MetricNum
-            value={formatDuration(isRunning ? ext.startedAt : null)}
-            color={isRunning ? C.textPrimary : C.textDisabled}
-          />
-        </MetricCell>
-
-        <MetricDivider />
-
-        {/* Last active */}
-        <MetricCell label={t('ssh.metrics.lastActive')} flex={1}>
-          <Box
-            component="span"
-            sx={{
-              fontSize: '13px',
-              fontWeight: 650,
-              color: lastActive.color,
-              fontFamily: C.sansStack,
-              lineHeight: 1.2,
-            }}
-          >
-            {lastActive.text}
-          </Box>
-        </MetricCell>
       </Box>
     </Box>
   )
@@ -1222,7 +1169,6 @@ const SshPage = () => {
 
   const prevStatsRef = useRef<Record<string, ISshTunnelStats>>({})
   const prevPollAtRef = useRef<Record<string, number>>({})
-  const prevStateRef = useRef<Record<string, ISshTunnelState>>({})
 
   const refreshServers = useCallback(async () => {
     try {
@@ -1237,54 +1183,25 @@ const SshPage = () => {
       const newStats = await getSshTunnelStats()
       const now = Date.now()
 
-      setExtMap((prev) => {
-        const next: Record<string, ExtStats> = {}
-        for (const [uid, stats] of Object.entries(newStats)) {
-          const prevStats = prevStatsRef.current[uid]
-          const prevPollAt = prevPollAtRef.current[uid] ?? now
-          const prevState = prevStateRef.current[uid]
-          const state = stats.status.state
-          const elapsed = (now - prevPollAt) / 1000
+      const next: Record<string, ExtStats> = {}
+      for (const [uid, stats] of Object.entries(newStats)) {
+        const prevStats = prevStatsRef.current[uid]
+        const prevPollAt = prevPollAtRef.current[uid] ?? now
+        const elapsed = (now - prevPollAt) / 1000
 
-          const upRate =
-            prevStats && elapsed > 0
-              ? Math.max(0, (stats.up - prevStats.up) / elapsed)
-              : 0
-          const downRate =
-            prevStats && elapsed > 0
-              ? Math.max(0, (stats.down - prevStats.down) / elapsed)
-              : 0
+        const upRate =
+          prevStats && elapsed > 0
+            ? Math.max(0, (stats.up - prevStats.up) / elapsed)
+            : 0
+        const downRate =
+          prevStats && elapsed > 0
+            ? Math.max(0, (stats.down - prevStats.down) / elapsed)
+            : 0
 
-          const prevExt = prev[uid] ?? emptyExt()
-          const isRunning = state === 'Running'
-
-          // Record start time on Running entry
-          let startedAt = prevExt.startedAt
-          if (isRunning && prevState !== 'Running') {
-            startedAt = now
-          } else if (!isRunning && state !== 'Reconnecting') {
-            startedAt = null
-          }
-
-          // Last active: any traffic or live state
-          let lastActiveAt = prevExt.lastActiveAt
-          if (upRate > 0 || downRate > 0) {
-            lastActiveAt = now
-          } else if (
-            state === 'Running' ||
-            state === 'Connecting' ||
-            state === 'Reconnecting'
-          ) {
-            lastActiveAt = lastActiveAt ?? now
-          }
-
-          prevPollAtRef.current[uid] = now
-          prevStateRef.current[uid] = state
-
-          next[uid] = { upRate, downRate, startedAt, lastActiveAt }
-        }
-        return next
-      })
+        prevPollAtRef.current[uid] = now
+        next[uid] = { upRate, downRate }
+      }
+      setExtMap(next)
 
       prevStatsRef.current = newStats
       setStatsMap(newStats)

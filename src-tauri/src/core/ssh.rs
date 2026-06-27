@@ -84,6 +84,22 @@ const MAX_LOGS_PER_TUNNEL: usize = 500;
 /// 一次性推送给前端，避免逐连接 emit 打爆 WebView IPC 导致界面卡死。
 const LOG_EMIT_INTERVAL: Duration = Duration::from_millis(150);
 
+/// SSH 连接 + 认证的整体超时：避免一次挂起的连接长时间（OS TCP 超时最长
+/// 约 75 秒）卡在 Connecting，使自动重连不及时。
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// 延迟探测间隔
+const PROBE_INTERVAL: Duration = Duration::from_secs(10);
+/// 单次延迟探测的超时
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// 连续探测超时达到此次数即判定链路假死（黑洞/半开），主动释放会话触发重连。
+/// 比依赖 russh keepalive（约 45 秒、且无业务流量时未必可靠）更快更可靠。
+const MAX_PROBE_FAILURES: u32 = 3;
+
+/// 单条转发连接的空闲超时安全网：取值远大于常规应用心跳间隔，仅用于兜底回收
+/// 链路假死后永久阻塞、无法被 EOF 唤醒而泄漏的连接，尽量避免误杀合法长闲连接。
+const CONN_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
+
 /// 某隧道待推送 live 日志的合批状态
 #[derive(Default)]
 struct LogEmitState {
@@ -657,13 +673,26 @@ async fn run_tunnel(
                 let session = Arc::new(session);
                 set_status(&uid, &status, TunnelStatus::Running);
                 log_tunnel(&uid, "info", "认证成功，隧道已就绪").await;
+                // 探测连续失败时通过此信号主动触发重连（链路假死自愈）。
+                let force_reconnect = Arc::new(Notify::new());
                 // 通过已建立的 SSH 会话周期性测量往返延迟
                 let probe = tokio::spawn(session_latency_probe(
+                    Arc::clone(&uid),
                     Arc::clone(&session),
                     Arc::clone(&metrics),
                     Arc::clone(&cancel),
+                    Arc::clone(&force_reconnect),
                 ));
-                let result = accept_loop(&uid, &listener, &session, server.local_port, &metrics, &cancel).await;
+                let result = accept_loop(
+                    &uid,
+                    &listener,
+                    &session,
+                    server.local_port,
+                    &metrics,
+                    &cancel,
+                    &force_reconnect,
+                )
+                .await;
                 probe.abort();
                 metrics.set_latency(None);
                 match result {
@@ -697,12 +726,20 @@ async fn run_tunnel(
     log_tunnel(&uid, "info", "隧道已停止").await;
 }
 
-/// 通过已建立的 SSH 会话发起 direct-tcpip 请求并测量往返延迟。
+/// 通过已建立的 SSH 会话发起 direct-tcpip 请求并测量往返延迟，同时充当主动健康
+/// 检测：连续多次探测超时即判定链路假死，主动触发重连，释放并重建隧道。
 /// 比直接探测 TCP:22 更准确，且不会在服务端制造多余的连接日志。
-async fn session_latency_probe(session: Arc<client::Handle<Client>>, metrics: Arc<TunnelMetrics>, cancel: Arc<Cancel>) {
+async fn session_latency_probe(
+    uid: Arc<str>,
+    session: Arc<client::Handle<Client>>,
+    metrics: Arc<TunnelMetrics>,
+    cancel: Arc<Cancel>,
+    force_reconnect: Arc<Notify>,
+) {
+    let mut failures: u32 = 0;
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+            _ = tokio::time::sleep(PROBE_INTERVAL) => {}
             _ = cancel.cancelled() => return,
         }
         if session.is_closed() {
@@ -711,16 +748,34 @@ async fn session_latency_probe(session: Arc<client::Handle<Client>>, metrics: Ar
         let start = Instant::now();
         // 向远端本地回环的 1 号端口发起 channel open；该端口通常未监听，
         // 服务端会立即返回 CHANNEL_OPEN_FAILURE，但往返时间即反映 SSH 链路延迟。
+        // 此处 Ok(_) 表示完成了一次往返（无论成功还是 OPEN_FAILURE），
+        // Err(_) 表示在 PROBE_TIMEOUT 内毫无响应 —— 即链路疑似假死。
         let result = tokio::time::timeout(
-            Duration::from_secs(5),
+            PROBE_TIMEOUT,
             session.channel_open_direct_tcpip("127.0.0.1", 1, "127.0.0.1", 0),
         )
         .await;
-        let measured = match result {
-            Ok(_) => Some(start.elapsed().as_millis() as u64),
-            Err(_) => None, // 超时视为延迟不可用
-        };
-        metrics.set_latency(measured);
+        match result {
+            Ok(_) => {
+                failures = 0;
+                metrics.set_latency(Some(start.elapsed().as_millis() as u64));
+            }
+            Err(_) => {
+                failures += 1;
+                metrics.set_latency(None);
+                if failures >= MAX_PROBE_FAILURES {
+                    log_tunnel(
+                        &uid,
+                        "warn",
+                        format!("连续 {failures} 次健康探测超时，判定链路假死，主动重连"),
+                    )
+                    .await;
+                    // 唤醒 accept_loop 走 SessionLost 重连路径（不依赖已卡死的 socket）。
+                    force_reconnect.notify_one();
+                    return;
+                }
+            }
+        }
     }
 }
 
@@ -753,24 +808,31 @@ async fn wait_or_cancel(cancel: &Cancel) -> bool {
     }
 }
 
-/// 建立 SSH 会话并完成密码认证
+/// 建立 SSH 会话并完成密码认证。整体包一层 CONNECT_TIMEOUT，避免一次挂起的
+/// 连接/认证长时间卡在 Connecting 而拖慢自动重连。
 async fn connect_and_auth(server: &ISshServer) -> Result<client::Handle<Client>> {
-    let config = Arc::new(client::Config {
-        keepalive_interval: Some(Duration::from_secs(15)),
-        keepalive_max: 3,
-        nodelay: true,
-        ..Default::default()
-    });
+    let connect = async {
+        let config = Arc::new(client::Config {
+            keepalive_interval: Some(Duration::from_secs(15)),
+            keepalive_max: 3,
+            nodelay: true,
+            ..Default::default()
+        });
 
-    let mut session = client::connect(config, (server.host.to_string(), server.port), Client).await?;
-    let password = server.password.clone().unwrap_or_default();
-    let result = session
-        .authenticate_password(server.username.to_string(), password.to_string())
-        .await?;
-    if !result.success() {
-        bail!("SSH 密码认证失败");
-    }
-    Ok(session)
+        let mut session = client::connect(config, (server.host.to_string(), server.port), Client).await?;
+        let password = server.password.clone().unwrap_or_default();
+        let result = session
+            .authenticate_password(server.username.to_string(), password.to_string())
+            .await?;
+        if !result.success() {
+            bail!("SSH 密码认证失败");
+        }
+        Ok(session)
+    };
+
+    tokio::time::timeout(CONNECT_TIMEOUT, connect)
+        .await
+        .map_err(|_| anyhow::anyhow!("连接/认证超时（超过 {} 秒）", CONNECT_TIMEOUT.as_secs()))?
 }
 
 /// accept 循环 + 会话健康检测
@@ -781,11 +843,14 @@ async fn accept_loop(
     local_port: u16,
     metrics: &Arc<TunnelMetrics>,
     cancel: &Cancel,
+    force: &Notify,
 ) -> AcceptEnd {
     loop {
         tokio::select! {
             _ = cancel.cancelled() => return AcceptEnd::Cancelled,
             _ = wait_session_lost(session) => return AcceptEnd::SessionLost,
+            // 健康探测判定链路假死时被唤醒，按会话丢失处理触发重连。
+            _ = force.notified() => return AcceptEnd::SessionLost,
             accepted = listener.accept() => {
                 match accepted {
                     Ok((stream, peer)) => {
@@ -924,7 +989,15 @@ where
 {
     let mut buf = vec![0u8; 16 * 1024];
     loop {
-        let n = reader.read(&mut buf).await?;
+        // 包一层空闲超时安全网：链路假死时 SSH channel 的读可能永不返回 EOF，
+        // 该任务会一直持有旧会话的 Arc 阻止其释放而泄漏；超时即主动结束此连接。
+        let n = match tokio::time::timeout(CONN_IDLE_TIMEOUT, reader.read(&mut buf)).await {
+            Ok(result) => result?,
+            Err(_) => {
+                let _ = writer.shutdown().await;
+                return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "转发连接空闲超时"));
+            }
+        };
         if n == 0 {
             break;
         }

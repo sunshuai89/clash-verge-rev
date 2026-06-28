@@ -20,7 +20,7 @@ use std::{
 use tokio::{
     io::{AsyncReadExt as _, AsyncWriteExt as _},
     net::{TcpListener, TcpStream},
-    sync::{Mutex, Notify},
+    sync::{Mutex, Notify, Semaphore},
     task::JoinHandle,
 };
 
@@ -99,6 +99,15 @@ const MAX_PROBE_FAILURES: u32 = 3;
 /// 单条转发连接的空闲超时安全网：取值远大于常规应用心跳间隔，仅用于兜底回收
 /// 链路假死后永久阻塞、无法被 EOF 唤醒而泄漏的连接，尽量避免误杀合法长闲连接。
 const CONN_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
+
+/// 打开 SSH direct-tcpip 通道的超时：会话假死（黑洞/半开）时 channel_open 可能
+/// 永不返回，导致 handle_socks 任务泄漏并钉住旧会话 Arc 阻止其释放。
+const CHANNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// 单隧道并发转发连接数上限：(重)连成功的瞬间会一次性涌入 OS accept backlog 中
+/// 积压的全部本地连接，给一个宽松上限避免同时对单个 SSH 会话打开过多通道。取值
+/// 远高于常规浏览所需，仅用于削峰，正常高并发访问不受影响。
+const MAX_CONCURRENT_FORWARDS: usize = 256;
 
 /// 某隧道待推送 live 日志的合批状态
 #[derive(Default)]
@@ -683,6 +692,8 @@ async fn run_tunnel(
                     Arc::clone(&cancel),
                     Arc::clone(&force_reconnect),
                 ));
+                // 每会话一个并发转发名额池，削平 (重)连瞬间的连接风暴
+                let forwards = Arc::new(Semaphore::new(MAX_CONCURRENT_FORWARDS));
                 let result = accept_loop(
                     &uid,
                     &listener,
@@ -691,6 +702,7 @@ async fn run_tunnel(
                     &metrics,
                     &cancel,
                     &force_reconnect,
+                    &forwards,
                 )
                 .await;
                 probe.abort();
@@ -845,6 +857,9 @@ async fn connect_and_auth(server: &ISshServer) -> Result<client::Handle<Client>>
 }
 
 /// accept 循环 + 会话健康检测
+// 各参数均为单会话生命周期内共享的运行时句柄（监听器/会话/指标/取消/重连/名额池），
+// 强行打包成结构体只会增加间接层、降低可读性，而本函数是并发关键路径。
+#[allow(clippy::too_many_arguments)]
 async fn accept_loop(
     uid: &Arc<str>,
     listener: &TcpListener,
@@ -853,6 +868,7 @@ async fn accept_loop(
     metrics: &Arc<TunnelMetrics>,
     cancel: &Cancel,
     force: &Notify,
+    forwards: &Arc<Semaphore>,
 ) -> AcceptEnd {
     loop {
         tokio::select! {
@@ -869,8 +885,9 @@ async fn accept_loop(
                         let session = Arc::clone(session);
                         let uid = Arc::clone(uid);
                         let metrics = Arc::clone(metrics);
+                        let forwards = Arc::clone(forwards);
                         tokio::spawn(async move {
-                            if let Err(e) = handle_socks(&uid, stream, session, local_port, &metrics).await {
+                            if let Err(e) = handle_socks(&uid, stream, session, local_port, &metrics, forwards).await {
                                 // 代理连接级别的事件只写应用日志，不进隧道日志面板
                                 logging!(warn, Type::Core, "SSH 隧道 [{uid}] 来自 {peer} 的连接结束: {e}");
                             }
@@ -903,6 +920,7 @@ async fn handle_socks(
     session: Arc<client::Handle<Client>>,
     local_port: u16,
     metrics: &Arc<TunnelMetrics>,
+    forwards: Arc<Semaphore>,
 ) -> Result<()> {
     // 握手：版本 + 方法协商
     let mut head = [0u8; 2];
@@ -959,17 +977,29 @@ async fn handle_socks(
     stream.read_exact(&mut port_buf).await?;
     let port = u16::from_be_bytes(port_buf);
 
-    // 经 SSH 打开 direct-tcpip 通道
-    let channel = match session
-        .channel_open_direct_tcpip(host.clone(), port as u32, "127.0.0.1", local_port as u32)
-        .await
+    // 限制单隧道并发转发数，削平 (重)连瞬间的连接风暴。SOCKS 握手已在上方完成，
+    // 因此早已断开的陈旧连接会先在握手读取处失败、根本不占用名额。名额随本函数
+    // 结束自动归还（_permit 持有到作用域末尾，覆盖通道打开与双向转发全过程）。
+    let _permit = forwards.acquire_owned().await.ok();
+
+    // 经 SSH 打开 direct-tcpip 通道；加超时避免会话假死时永久挂起、泄漏任务并钉住旧会话
+    let channel = match tokio::time::timeout(
+        CHANNEL_OPEN_TIMEOUT,
+        session.channel_open_direct_tcpip(host.clone(), port as u32, "127.0.0.1", local_port as u32),
+    )
+    .await
     {
-        Ok(channel) => channel,
-        Err(e) => {
+        Ok(Ok(channel)) => channel,
+        Ok(Err(e)) => {
             // 代理连接级别的事件只写应用日志，不进隧道日志面板
             logging!(warn, Type::Core, "SSH 隧道 [{uid}] 转发 {host}:{port} 失败: {e}");
             socks_reply(&mut stream, 0x05).await?;
             return Err(e.into());
+        }
+        Err(_) => {
+            logging!(warn, Type::Core, "SSH 隧道 [{uid}] 转发 {host}:{port} 打开通道超时");
+            socks_reply(&mut stream, 0x05).await?;
+            bail!("打开 direct-tcpip 通道超时");
         }
     };
     // 代理连接建立属于高频事件，仅写应用日志，不进隧道日志面板

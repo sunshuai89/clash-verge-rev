@@ -56,12 +56,10 @@
     "host": "Host / IP",
     "port": "SSH Port",
     "username": "Username",
-    "authType": "Auth Type",
-    "authPassword": "Password",
-    "authKey": "Private Key",
     "password": "Password",
     "passwordEditHint": "Leave empty to keep current",
-    "keyPath": "Key Path",
+    "listenHost": "Listen Address",
+    "listenHostWarning": "This listen address can be reached by devices beyond this machine. Use it only on trusted networks with firewall or access controls in place.",
     "localPort": "Local SOCKS5 Port"
   },
   "actions": {
@@ -69,7 +67,6 @@
     "delete": "Delete",
     "save": "Save",
     "addTunnel": "Add Tunnel",
-    "selectFile": "Browse…",
     "cancel": "Cancel",
     "logs": "Logs",
     "close": "Close",

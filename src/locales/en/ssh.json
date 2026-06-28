@@ -1,6 +1,6 @@
 {
   "title": "SSH Tunnels",
-  "hint": "Each enabled tunnel opens a local SOCKS5 listener at 127.0.0.1:<local port>. Point a socks5 node in your profile at that port to route traffic through SSH.",
+  "hint": "Each enabled tunnel opens a SOCKS5 listener at its configured listen address and local port. Point a socks5 node in your profile at that address to route traffic through SSH.",
   "add": "New",
   "startAll": "Start All",
   "restartAll": "Restart All",
@@ -56,12 +56,10 @@
     "host": "Host / IP",
     "port": "SSH Port",
     "username": "Username",
-    "authType": "Auth Type",
-    "authPassword": "Password",
-    "authKey": "Private Key",
     "password": "Password",
     "passwordEditHint": "Leave empty to keep current",
-    "keyPath": "Key Path",
+    "listenHost": "Listen Address",
+    "listenHostWarning": "This listen address can be reached by devices beyond this machine. Use it only on trusted networks with firewall or access controls in place.",
     "localPort": "Local SOCKS5 Port"
   },
   "actions": {
@@ -69,7 +67,6 @@
     "delete": "Delete",
     "save": "Save",
     "addTunnel": "Add Tunnel",
-    "selectFile": "Browse…",
     "cancel": "Cancel",
     "logs": "Logs",
     "close": "Close",

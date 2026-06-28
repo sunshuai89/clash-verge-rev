@@ -104,6 +104,9 @@ const CONN_IDLE_TIMEOUT: Duration = Duration::from_secs(1800);
 /// 永不返回，导致 handle_socks 任务泄漏并钉住旧会话 Arc 阻止其释放。
 const CHANNEL_OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// SOCKS5 握手超时：本地客户端连上后若不发送完整握手，及时回收任务。
+const SOCKS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// 单隧道并发转发连接数上限：(重)连成功的瞬间会一次性涌入 OS accept backlog 中
 /// 积压的全部本地连接，给一个宽松上限避免同时对单个 SSH 会话打开过多通道。取值
 /// 远高于常规浏览所需，仅用于削峰，正常高并发访问不受影响。
@@ -639,25 +642,39 @@ async fn run_tunnel(
     log_tunnel(
         &uid,
         "info",
-        format!("启动隧道，本地 SOCKS5 端口 {}", server.local_port),
+        format!(
+            "启动隧道，本地 SOCKS5 监听 {}",
+            display_listen_addr(&server.listen_host, server.local_port)
+        ),
     )
     .await;
 
-    let listener = match bind_listener(&uid, server.local_port, &cancel).await {
+    let listener = match bind_listener(&uid, &server.listen_host, server.local_port, &cancel).await {
         Some(listener) => listener,
         None => {
             if cancel.is_cancelled() {
                 set_status(&uid, &status, TunnelStatus::Stopped);
                 log_tunnel(&uid, "info", "隧道已停止").await;
             } else {
-                let msg = format!("本地端口 {} 绑定失败（被占用）", server.local_port);
+                let msg = format!(
+                    "本地监听 {} 绑定失败（被占用或地址不可用）",
+                    display_listen_addr(&server.listen_host, server.local_port)
+                );
                 log_tunnel(&uid, "error", msg.clone()).await;
                 set_status(&uid, &status, TunnelStatus::Error(msg));
             }
             return;
         }
     };
-    log_tunnel(&uid, "info", format!("本地监听就绪 127.0.0.1:{}", server.local_port)).await;
+    log_tunnel(
+        &uid,
+        "info",
+        format!(
+            "本地监听就绪 {}",
+            display_listen_addr(&server.listen_host, server.local_port)
+        ),
+    )
+    .await;
 
     // 连接循环：固定 3 秒重连，直到用户主动停止
     loop {
@@ -699,6 +716,7 @@ async fn run_tunnel(
                     &listener,
                     &session,
                     server.local_port,
+                    &server.listen_host,
                     &metrics,
                     &cancel,
                     &force_reconnect,
@@ -801,13 +819,14 @@ async fn session_latency_probe(
 }
 
 /// 绑定本地监听端口，占用时少量重试
-async fn bind_listener(uid: &str, local_port: u16, cancel: &Cancel) -> Option<TcpListener> {
-    let addr = format!("127.0.0.1:{local_port}");
+async fn bind_listener(uid: &str, listen_host: &str, local_port: u16, cancel: &Cancel) -> Option<TcpListener> {
+    let listen_host = normalize_listen_host(listen_host);
+    let addr = display_listen_addr(&listen_host, local_port);
     for attempt in 0..3u8 {
         if cancel.is_cancelled() {
             return None;
         }
-        match TcpListener::bind(&addr).await {
+        match TcpListener::bind((listen_host.as_str(), local_port)).await {
             Ok(listener) => return Some(listener),
             Err(e) => {
                 log_tunnel(uid, "warn", format!("绑定 {addr} 失败（第 {} 次）: {e}", attempt + 1)).await;
@@ -826,6 +845,24 @@ async fn wait_or_cancel(cancel: &Cancel) -> bool {
     tokio::select! {
         _ = tokio::time::sleep(Duration::from_secs(3)) => false,
         _ = cancel.cancelled() => true,
+    }
+}
+
+fn normalize_listen_host(listen_host: &str) -> String {
+    let listen_host = listen_host.trim();
+    if listen_host.is_empty() {
+        "127.0.0.1".into()
+    } else {
+        listen_host.into()
+    }
+}
+
+fn display_listen_addr(listen_host: &str, local_port: u16) -> String {
+    let listen_host = normalize_listen_host(listen_host);
+    if listen_host.contains(':') && !listen_host.starts_with('[') {
+        format!("[{listen_host}]:{local_port}")
+    } else {
+        format!("{listen_host}:{local_port}")
     }
 }
 
@@ -865,6 +902,7 @@ async fn accept_loop(
     listener: &TcpListener,
     session: &Arc<client::Handle<Client>>,
     local_port: u16,
+    listen_host: &str,
     metrics: &Arc<TunnelMetrics>,
     cancel: &Cancel,
     force: &Notify,
@@ -886,8 +924,11 @@ async fn accept_loop(
                         let uid = Arc::clone(uid);
                         let metrics = Arc::clone(metrics);
                         let forwards = Arc::clone(forwards);
+                        let listen_host = listen_host.to_string();
                         tokio::spawn(async move {
-                            if let Err(e) = handle_socks(&uid, stream, session, local_port, &metrics, forwards).await {
+                            if let Err(e) =
+                                handle_socks(&uid, stream, session, local_port, &listen_host, &metrics, forwards).await
+                            {
                                 // 代理连接级别的事件只写应用日志，不进隧道日志面板
                                 logging!(warn, Type::Core, "SSH 隧道 [{uid}] 来自 {peer} 的连接结束: {e}");
                             }
@@ -919,73 +960,24 @@ async fn handle_socks(
     mut stream: TcpStream,
     session: Arc<client::Handle<Client>>,
     local_port: u16,
+    listen_host: &str,
     metrics: &Arc<TunnelMetrics>,
     forwards: Arc<Semaphore>,
 ) -> Result<()> {
-    // 握手：版本 + 方法协商
-    let mut head = [0u8; 2];
-    stream.read_exact(&mut head).await?;
-    if head[0] != 0x05 {
-        bail!("非 SOCKS5 请求");
-    }
-    let n_methods = head[1] as usize;
-    let mut methods = vec![0u8; n_methods];
-    stream.read_exact(&mut methods).await?;
-    if !methods.contains(&0x00) {
-        stream.write_all(&[0x05, 0xFF]).await?;
-        bail!("客户端不支持 no-auth 方法");
-    }
-    stream.write_all(&[0x05, 0x00]).await?;
-
-    // 请求头：VER CMD RSV ATYP
-    let mut req = [0u8; 4];
-    stream.read_exact(&mut req).await?;
-    if req[0] != 0x05 {
-        bail!("无效的 SOCKS5 请求");
-    }
-    if req[1] != 0x01 {
-        // 仅支持 CONNECT
-        socks_reply(&mut stream, 0x07).await?;
-        bail!("不支持的 SOCKS5 命令");
-    }
-
-    let host = match req[3] {
-        0x01 => {
-            let mut addr = [0u8; 4];
-            stream.read_exact(&mut addr).await?;
-            Ipv4Addr::from(addr).to_string()
-        }
-        0x04 => {
-            let mut addr = [0u8; 16];
-            stream.read_exact(&mut addr).await?;
-            Ipv6Addr::from(addr).to_string()
-        }
-        0x03 => {
-            let mut len = [0u8; 1];
-            stream.read_exact(&mut len).await?;
-            let mut domain = vec![0u8; len[0] as usize];
-            stream.read_exact(&mut domain).await?;
-            String::from_utf8_lossy(&domain).into_owned()
-        }
-        _ => {
-            socks_reply(&mut stream, 0x08).await?;
-            bail!("不支持的地址类型");
-        }
-    };
-
-    let mut port_buf = [0u8; 2];
-    stream.read_exact(&mut port_buf).await?;
-    let port = u16::from_be_bytes(port_buf);
+    let (host, port) = tokio::time::timeout(SOCKS_HANDSHAKE_TIMEOUT, socks5_handshake(&mut stream))
+        .await
+        .map_err(|_| anyhow::anyhow!("SOCKS5 握手超时"))??;
 
     // 限制单隧道并发转发数，削平 (重)连瞬间的连接风暴。SOCKS 握手已在上方完成，
     // 因此早已断开的陈旧连接会先在握手读取处失败、根本不占用名额。名额随本函数
     // 结束自动归还（_permit 持有到作用域末尾，覆盖通道打开与双向转发全过程）。
     let _permit = forwards.acquire_owned().await.ok();
+    let originator = normalize_listen_host(listen_host);
 
     // 经 SSH 打开 direct-tcpip 通道；加超时避免会话假死时永久挂起、泄漏任务并钉住旧会话
     let channel = match tokio::time::timeout(
         CHANNEL_OPEN_TIMEOUT,
-        session.channel_open_direct_tcpip(host.clone(), port as u32, "127.0.0.1", local_port as u32),
+        session.channel_open_direct_tcpip(host.clone(), port as u32, originator, local_port as u32),
     )
     .await
     {
@@ -1018,6 +1010,64 @@ async fn handle_socks(
     up_res?;
     down_res?;
     Ok(())
+}
+
+async fn socks5_handshake(stream: &mut TcpStream) -> Result<(String, u16)> {
+    // 握手：版本 + 方法协商
+    let mut head = [0u8; 2];
+    stream.read_exact(&mut head).await?;
+    if head[0] != 0x05 {
+        bail!("非 SOCKS5 请求");
+    }
+    let n_methods = head[1] as usize;
+    let mut methods = vec![0u8; n_methods];
+    stream.read_exact(&mut methods).await?;
+    if !methods.contains(&0x00) {
+        stream.write_all(&[0x05, 0xFF]).await?;
+        bail!("客户端不支持 no-auth 方法");
+    }
+    stream.write_all(&[0x05, 0x00]).await?;
+
+    // 请求头：VER CMD RSV ATYP
+    let mut req = [0u8; 4];
+    stream.read_exact(&mut req).await?;
+    if req[0] != 0x05 {
+        bail!("无效的 SOCKS5 请求");
+    }
+    if req[1] != 0x01 {
+        // 仅支持 CONNECT
+        socks_reply(&mut *stream, 0x07).await?;
+        bail!("不支持的 SOCKS5 命令");
+    }
+
+    let host = match req[3] {
+        0x01 => {
+            let mut addr = [0u8; 4];
+            stream.read_exact(&mut addr).await?;
+            Ipv4Addr::from(addr).to_string()
+        }
+        0x04 => {
+            let mut addr = [0u8; 16];
+            stream.read_exact(&mut addr).await?;
+            Ipv6Addr::from(addr).to_string()
+        }
+        0x03 => {
+            let mut len = [0u8; 1];
+            stream.read_exact(&mut len).await?;
+            let mut domain = vec![0u8; len[0] as usize];
+            stream.read_exact(&mut domain).await?;
+            String::from_utf8_lossy(&domain).into_owned()
+        }
+        _ => {
+            socks_reply(&mut *stream, 0x08).await?;
+            bail!("不支持的地址类型");
+        }
+    };
+
+    let mut port_buf = [0u8; 2];
+    stream.read_exact(&mut port_buf).await?;
+    let port = u16::from_be_bytes(port_buf);
+    Ok((host, port))
 }
 
 /// 单向复制并累计字节数（写入计数器）

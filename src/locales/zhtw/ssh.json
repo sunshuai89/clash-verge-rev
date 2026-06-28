@@ -56,12 +56,10 @@
     "host": "伺服器 IP / 網域",
     "port": "SSH 端口",
     "username": "用戶名",
-    "authType": "認證方式",
-    "authPassword": "密碼",
-    "authKey": "私鑰",
     "password": "密碼",
     "passwordEditHint": "留空則不修改",
-    "keyPath": "私鑰路徑",
+    "listenHost": "Listen Address",
+    "listenHostWarning": "This listen address can be reached by devices beyond this machine. Use it only on trusted networks with firewall or access controls in place.",
     "localPort": "本地 SOCKS5 端口"
   },
   "actions": {
@@ -69,7 +67,6 @@
     "delete": "刪除",
     "save": "儲存",
     "addTunnel": "新增通道",
-    "selectFile": "選擇…",
     "cancel": "取消",
     "logs": "日誌",
     "close": "關閉",

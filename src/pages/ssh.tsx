@@ -89,6 +89,23 @@ function formatBytes(bytes: number): string {
   return `${value}${unit === 'B' ? 'B' : unit[0]}`
 }
 
+function normalizeListenHost(host?: string): string {
+  const trimmed = host?.trim()
+  return trimmed || '127.0.0.1'
+}
+
+function formatListenAddr(host: string | undefined, port: number): string {
+  const listenHost = normalizeListenHost(host)
+  return listenHost.includes(':') && !listenHost.startsWith('[')
+    ? `[${listenHost}]:${port}`
+    : `${listenHost}:${port}`
+}
+
+function isExternalListenHost(host?: string): boolean {
+  const listenHost = normalizeListenHost(host).toLowerCase()
+  return !['127.0.0.1', 'localhost', '::1', '[::1]'].includes(listenHost)
+}
+
 // ─── State shapes ─────────────────────────────────────────────────────────────
 
 const emptyStats = (): ISshTunnelStats => ({
@@ -108,10 +125,7 @@ const emptyExt = (): ExtStats => ({
   downRate: 0,
 })
 
-interface SshForm extends ISshServer {
-  authType: 'password' | 'key'
-  keyPath: string
-}
+type SshForm = ISshServer
 
 const emptyForm = (): SshForm => ({
   uid: '',
@@ -121,9 +135,8 @@ const emptyForm = (): SshForm => ({
   username: 'root',
   password: '',
   local_port: 10880,
+  listen_host: '127.0.0.1',
   enabled: false,
-  authType: 'password',
-  keyPath: '',
 })
 
 // ─── Micro components ─────────────────────────────────────────────────────────
@@ -384,7 +397,7 @@ function TunnelCard({
     isRunning || state === 'Connecting' || state === 'Reconnecting'
 
   const sshAddr = `${server.username}@${server.host}:${server.port}`
-  const socks5Addr = `127.0.0.1:${server.local_port}`
+  const socks5Addr = formatListenAddr(server.listen_host, server.local_port)
   const latColor = latencyColor(stats.latency_ms, isRunning)
   const hasTraffic = stats.up > 0 || stats.down > 0
 
@@ -731,56 +744,6 @@ function FormInput({
   )
 }
 
-function SegmentedControl({
-  options,
-  value,
-  onChange,
-}: {
-  options: Array<{ value: string; label: string }>
-  value: string
-  onChange: (v: string) => void
-}) {
-  return (
-    <Box
-      sx={{
-        display: 'inline-flex',
-        bgcolor: '#f1f1f2',
-        borderRadius: '9px',
-        padding: '3px',
-        gap: '2px',
-      }}
-    >
-      {options.map((opt) => (
-        <Box
-          key={opt.value}
-          component="button"
-          onClick={() => onChange(opt.value)}
-          sx={{
-            border: 'none',
-            cursor: 'pointer',
-            px: '14px',
-            py: '6px',
-            borderRadius: '7px',
-            fontSize: '13px',
-            fontWeight: 550,
-            fontFamily: C.sansStack,
-            transition: 'all .12s',
-            ...(opt.value === value
-              ? {
-                  bgcolor: C.card,
-                  color: C.textPrimary,
-                  boxShadow: '0 1px 2px rgba(0,0,0,.08)',
-                }
-              : { bgcolor: 'transparent', color: C.textMuted }),
-          }}
-        >
-          {opt.label}
-        </Box>
-      ))}
-    </Box>
-  )
-}
-
 function SecondaryBtn({
   onClick,
   children,
@@ -980,48 +943,43 @@ function AddEditDialog({
             />
           </FormField>
 
-          {/* Auth type selector */}
-          <FormField label={t('ssh.field.authType')}>
-            <SegmentedControl
-              options={[
-                { value: 'password', label: t('ssh.field.authPassword') },
-                { value: 'key', label: t('ssh.field.authKey') },
-              ]}
-              value={form.authType}
-              onChange={(v) => onPatch({ authType: v as 'password' | 'key' })}
+          <FormField label={t('ssh.field.password')}>
+            <FormInput
+              value={form.password ?? ''}
+              onChange={(v) => onPatch({ password: v })}
+              type="password"
+              placeholder={
+                editing ? t('ssh.field.passwordEditHint') : '••••••••'
+              }
             />
           </FormField>
 
-          {/* Password or key path */}
-          {form.authType === 'password' ? (
-            <FormField label={t('ssh.field.password')}>
-              <FormInput
-                value={form.password ?? ''}
-                onChange={(v) => onPatch({ password: v })}
-                type="password"
-                placeholder={
-                  editing ? t('ssh.field.passwordEditHint') : '••••••••'
-                }
-              />
-            </FormField>
-          ) : (
-            <FormField label={t('ssh.field.keyPath')}>
-              <Box sx={{ display: 'flex', gap: '8px' }}>
-                <FormInput
-                  value={form.keyPath}
-                  onChange={(v) => onPatch({ keyPath: v })}
-                  placeholder="~/.ssh/id_rsa"
-                  mono
-                  style={{ flex: 1 } as CSSProperties}
-                />
-                <SecondaryBtn onClick={() => {}}>
-                  {t('ssh.actions.selectFile')}
-                </SecondaryBtn>
+          <FormField label={t('ssh.field.listenHost')}>
+            <FormInput
+              value={normalizeListenHost(form.listen_host)}
+              onChange={(v) => onPatch({ listen_host: v })}
+              placeholder="127.0.0.1"
+              mono
+            />
+            {isExternalListenHost(form.listen_host) && (
+              <Box
+                sx={{
+                  mt: '8px',
+                  px: '10px',
+                  py: '8px',
+                  borderRadius: '8px',
+                  bgcolor: '#fff7ed',
+                  color: '#9a3412',
+                  fontSize: '12px',
+                  lineHeight: 1.45,
+                  border: '1px solid #fed7aa',
+                }}
+              >
+                {t('ssh.field.listenHostWarning')}
               </Box>
-            </FormField>
-          )}
+            )}
+          </FormField>
 
-          {/* Local SOCKS5 port */}
           <FormField label={t('ssh.field.localPort')}>
             <FormInput
               value={String(form.local_port)}
@@ -1517,6 +1475,9 @@ const SshPage = () => {
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPassphrase, setExportPassphrase] = useState('')
   const [exporting, setExporting] = useState(false)
+  const [statsInterval, setStatsInterval] = useState(() =>
+    document.visibilityState === 'visible' ? 1500 : 10000,
+  )
 
   const prevStatsRef = useRef<Record<string, ISshTunnelStats>>({})
   const prevPollAtRef = useRef<Record<string, number>>({})
@@ -1561,7 +1522,17 @@ const SshPage = () => {
     }
   }, [])
 
-  useInterval(refreshStats, 1500, { immediate: true })
+  useInterval(refreshStats, statsInterval, { immediate: true })
+
+  useEffect(() => {
+    const updateStatsInterval = () => {
+      setStatsInterval(document.visibilityState === 'visible' ? 1500 : 10000)
+    }
+    document.addEventListener('visibilitychange', updateStatsInterval)
+    return () => {
+      document.removeEventListener('visibilitychange', updateStatsInterval)
+    }
+  }, [])
 
   useEffect(() => {
     void refreshServers()
@@ -1682,7 +1653,11 @@ const SshPage = () => {
 
   const openEdit = (server: ISshServer) => {
     setEditing(true)
-    setForm({ ...server, password: '', authType: 'password', keyPath: '' })
+    setForm({
+      ...server,
+      listen_host: normalizeListenHost(server.listen_host),
+      password: '',
+    })
     setDialogOpen(true)
   }
 
@@ -1693,7 +1668,7 @@ const SshPage = () => {
       showNotice('error', t('ssh.errors.required'))
       return
     }
-    if (!editing && form.authType === 'password' && !form.password) {
+    if (!editing && !form.password) {
       showNotice('error', t('ssh.errors.passwordRequired'))
       return
     }
@@ -1702,14 +1677,13 @@ const SshPage = () => {
       return
     }
     try {
-      // Strip UI-only fields before sending to backend
-      const { authType: _a, keyPath: _k, ...serverData } = form
       await saveSshServer({
-        ...serverData,
+        ...form,
         host,
         username,
         name: form.name.trim() || host,
         port: form.port || 22,
+        listen_host: normalizeListenHost(form.listen_host),
       })
       setDialogOpen(false)
       await refreshServers()

@@ -11,6 +11,10 @@ const fn default_ssh_port() -> u16 {
     22
 }
 
+fn default_listen_host() -> String {
+    "127.0.0.1".into()
+}
+
 /// 单个 SSH SOCKS 隧道服务器条目
 #[derive(Default, Debug, Clone, Deserialize, Serialize)]
 pub struct ISshServer {
@@ -41,6 +45,10 @@ pub struct ISshServer {
 
     /// 本地 SOCKS5 监听端口
     pub local_port: u16,
+
+    /// 本地 SOCKS5 监听地址，默认仅监听 localhost
+    #[serde(default = "default_listen_host")]
+    pub listen_host: String,
 
     /// 运行意图：用户希望此隧道处于运行状态（持久化）
     #[serde(default)]

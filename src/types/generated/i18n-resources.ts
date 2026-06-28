@@ -1364,7 +1364,6 @@ export interface TranslationResources {
         edit: string
         logs: string
         save: string
-        selectFile: string
       }
       add: string
       copied: string
@@ -1391,11 +1390,9 @@ export interface TranslationResources {
       }
       exportSuccess: string
       field: {
-        authKey: string
-        authPassword: string
-        authType: string
         host: string
-        keyPath: string
+        listenHost: string
+        listenHostWarning: string
         localPort: string
         name: string
         namePlaceholder: string

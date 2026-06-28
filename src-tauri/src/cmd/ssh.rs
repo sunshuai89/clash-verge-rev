@@ -21,6 +21,10 @@ const fn default_ssh_port() -> u16 {
     22
 }
 
+fn default_listen_host() -> String {
+    "127.0.0.1".into()
+}
+
 /// 导入 / 导出文件中的单条服务器（明文密码，不走加密字段序列化）
 #[derive(Debug, Serialize, Deserialize)]
 struct SshPlainServer {
@@ -33,6 +37,8 @@ struct SshPlainServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     password: Option<String>,
     local_port: u16,
+    #[serde(default = "default_listen_host")]
+    listen_host: String,
     #[serde(default)]
     enabled: bool,
 }
@@ -217,6 +223,7 @@ fn parse_import_text(text: &str, passphrase: Option<&str>) -> Result<Vec<ISshSer
             username: s.username.into(),
             password: s.password.filter(|p| !p.is_empty()).map(Into::into),
             local_port: s.local_port,
+            listen_host: s.listen_host.into(),
             enabled: s.enabled,
         })
         .collect();
@@ -272,6 +279,7 @@ pub async fn export_ssh_servers(path: String, passphrase: String) -> CmdResult<(
                 username: s.username.to_string(),
                 password: s.password.map(|p| p.to_string()).filter(|p| !p.is_empty()),
                 local_port: s.local_port,
+                listen_host: s.listen_host.to_string(),
                 enabled: s.enabled,
             })
             .collect(),

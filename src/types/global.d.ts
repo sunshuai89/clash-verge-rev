@@ -322,6 +322,7 @@ interface ISshServer {
   /** 留空表示不修改原密码；返回时永远为空 */
   password?: string
   local_port: number
+  listen_host?: string
   enabled: boolean
 }
 

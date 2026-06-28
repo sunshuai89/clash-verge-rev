@@ -1,6 +1,6 @@
 {
   "title": "SSH 隧道",
-  "hint": "每个开启的隧道会在 127.0.0.1:<本地端口> 起一个 SOCKS5 监听。在 profile 中用 socks5 节点指向该端口即可让流量经 SSH 转发。",
+  "hint": "每个开启的隧道会在配置的监听地址和本地端口起一个 SOCKS5 监听。在 profile 中用 socks5 节点指向该地址即可让流量经 SSH 转发。",
   "add": "新增",
   "startAll": "全部开启",
   "restartAll": "全部重启",
@@ -56,12 +56,10 @@
     "host": "服务器 IP / 域名",
     "port": "SSH 端口",
     "username": "用户名",
-    "authType": "认证方式",
-    "authPassword": "密码",
-    "authKey": "私钥",
     "password": "密码",
     "passwordEditHint": "留空则不修改",
-    "keyPath": "私钥路径",
+    "listenHost": "监听地址",
+    "listenHostWarning": "当前监听地址会暴露给本机以外的设备；请确认网络环境可信，并已设置防火墙或访问控制。",
     "localPort": "本地 SOCKS5 端口"
   },
   "actions": {
@@ -69,7 +67,6 @@
     "delete": "删除",
     "save": "保存",
     "addTunnel": "新增隧道",
-    "selectFile": "选择…",
     "cancel": "取消",
     "logs": "日志",
     "close": "关闭",

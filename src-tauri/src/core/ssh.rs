@@ -964,6 +964,9 @@ async fn handle_socks(
     metrics: &Arc<TunnelMetrics>,
     forwards: Arc<Semaphore>,
 ) -> Result<()> {
+    // SOCKS5 流量以大量小包为主，关闭 Nagle 避免本地侧额外攒包放大延迟。
+    let _ = stream.set_nodelay(true);
+
     let (host, port) = tokio::time::timeout(SOCKS_HANDSHAKE_TIMEOUT, socks5_handshake(&mut stream))
         .await
         .map_err(|_| anyhow::anyhow!("SOCKS5 握手超时"))??;
@@ -999,16 +1002,21 @@ async fn handle_socks(
     // 成功应答：BND.ADDR = 0.0.0.0:0
     stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await?;
 
-    // 双向转发，分方向累计字节数：本地→远端=上行，远端→本地=下行
+    // 双向转发，分方向累计字节数：本地→远端=上行，远端→本地=下行。
+    // 这里不等待“双向都自然结束”再返回：大量真实连接会先半关闭一侧，
+    // 若另一侧迟迟不回 EOF，就会长期占住任务与 semaphore 名额，
+    // 连接一多就表现成“越跑越慢”。任一方向结束后尽快回收整条转发。
     let channel_stream = channel.into_stream();
     let (local_read, local_write) = tokio::io::split(stream);
     let (remote_read, remote_write) = tokio::io::split(channel_stream);
-    let (up_res, down_res) = tokio::join!(
-        copy_counted(local_read, remote_write, &metrics.up),
-        copy_counted(remote_read, local_write, &metrics.down),
-    );
-    up_res?;
-    down_res?;
+    let up = copy_counted(local_read, remote_write, &metrics.up);
+    let down = copy_counted(remote_read, local_write, &metrics.down);
+    tokio::pin!(up, down);
+
+    tokio::select! {
+        res = &mut up => res?,
+        res = &mut down => res?,
+    }
     Ok(())
 }
 

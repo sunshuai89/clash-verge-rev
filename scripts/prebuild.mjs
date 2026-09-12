@@ -577,11 +577,11 @@ const resolveServicePermission = async () => {
 // =======================
 // Other resource resolvers (service, mmdb, geosite, geoip, enableLoopback)
 // =======================
-const SERVICE_LATEST_URL =
-  'https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/latest'
 const SERVICE_URL_PREFIX =
   'https://github.com/clash-verge-rev/clash-verge-service-ipc/releases/download'
-let SERVICE_VERSION
+// Records which release the service binaries in SERVICE_DIR came from, so a
+// version bump in Cargo.toml re-downloads them instead of reusing stale files.
+const SERVICE_VERSION_STAMP = path.join(TEMP_DIR, '.service_version')
 
 const SERVICE_BINARIES = [
   'clash-verge-service',
@@ -598,50 +598,27 @@ function serviceFileInfo(name) {
   }
 }
 
-function parseServiceVersionFromUrl(url) {
-  const match = url.match(/\/releases\/tag\/([^/?#]+)/)
-  return match ? decodeURIComponent(match[1]) : null
-}
-
-async function getLatestServiceVersion() {
-  if (!FORCE) {
-    const cached = await getCachedVersion('SERVICE_VERSION')
-    if (cached) {
-      SERVICE_VERSION = cached
-      return
-    }
+// The bundled service must speak the same IPC protocol (socket path, handshake)
+// as the `clash_verge_service_ipc` client compiled into the app, so the release
+// is derived from the crate version in src-tauri/Cargo.toml instead of `latest`.
+function resolveServiceRelease(cargoManifest, host) {
+  const dependency = cargoManifest
+    .split(/\r?\n/)
+    .find((line) => line.trimStart().startsWith('clash_verge_service_ipc ='))
+  const packageVersion = dependency?.match(/\bversion\s*=\s*"([^"]+)"/)?.[1]
+  if (!packageVersion) {
+    throw new Error(
+      'clash_verge_service_ipc dependency must declare an inline version',
+    )
   }
 
-  const options = {}
-  const httpProxy =
-    process.env.HTTP_PROXY ||
-    process.env.http_proxy ||
-    process.env.HTTPS_PROXY ||
-    process.env.https_proxy
-  if (httpProxy) options.agent = new HttpsProxyAgent(httpProxy)
-
-  try {
-    const response = await fetch(SERVICE_LATEST_URL, {
-      ...options,
-      method: 'GET',
-      redirect: 'follow',
-    })
-    if (!response.ok)
-      throw new Error(
-        `Failed to fetch ${SERVICE_LATEST_URL}: ${response.status}`,
-      )
-
-    SERVICE_VERSION = parseServiceVersionFromUrl(response.url)
-    if (!SERVICE_VERSION)
-      throw new Error(
-        `Unable to resolve service release tag from ${response.url}`,
-      )
-
-    log_info(`Latest service version: ${SERVICE_VERSION}`)
-    await setCachedVersion('SERVICE_VERSION', SERVICE_VERSION)
-  } catch (err) {
-    log_error('Error fetching latest service version:', err.message)
-    process.exit(1)
+  const version = `v${packageVersion}`
+  const archiveExt = platform === 'win32' ? 'zip' : 'tar.gz'
+  const archiveFile = `clash-verge-service-ipc-${version}-${host}.${archiveExt}`
+  return {
+    version,
+    archiveFile,
+    downloadURL: `${SERVICE_URL_PREFIX}/${version}/${archiveFile}`,
   }
 }
 
@@ -667,16 +644,31 @@ async function resolveServiceBundle() {
     }
   })
 
-  if (!FORCE && files.every(({ targetPath }) => fs.existsSync(targetPath))) {
-    log_success('"clash-verge-service-ipc" already exists, skipping download')
+  const cargoManifest = await fsp.readFile(
+    path.join(cwd, 'src-tauri', 'Cargo.toml'),
+    'utf8',
+  )
+  const { version, archiveFile, downloadURL } = resolveServiceRelease(
+    cargoManifest,
+    SIDECAR_HOST,
+  )
+
+  // Existing binaries are only reused when they were downloaded for this exact
+  // version; binaries without a stamp may come from an incompatible release.
+  const stampedVersion = fs.existsSync(SERVICE_VERSION_STAMP)
+    ? (await fsp.readFile(SERVICE_VERSION_STAMP, 'utf8')).trim()
+    : null
+  if (
+    !FORCE &&
+    stampedVersion === version &&
+    files.every(({ targetPath }) => fs.existsSync(targetPath))
+  ) {
+    log_success(
+      `"clash-verge-service-ipc" ${version} already exists, skipping download`,
+    )
     return
   }
 
-  await getLatestServiceVersion()
-
-  const archiveExt = platform === 'win32' ? 'zip' : 'tar.gz'
-  const archiveFile = `clash-verge-service-ipc-${SERVICE_VERSION}-${SIDECAR_HOST}.${archiveExt}`
-  const downloadURL = `${SERVICE_URL_PREFIX}/${SERVICE_VERSION}/${archiveFile}`
   const tempDir = path.join(TEMP_DIR, 'clash-verge-service-ipc')
   const tempArchive = path.join(tempDir, archiveFile)
 
@@ -710,6 +702,7 @@ async function resolveServiceBundle() {
       log_success(`Extracted service file: ${targetFile}`)
     }
 
+    await fsp.writeFile(SERVICE_VERSION_STAMP, version)
     log_success(`service bundle finished: ${archiveFile}`)
   } finally {
     await fsp.rm(tempDir, { recursive: true, force: true })

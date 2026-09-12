@@ -99,7 +99,9 @@ tauri-plugin-devtools = { version = "2.0.1" }
 tauri-plugin-mihomo = { git = "https://github.com/clash-verge-rev/tauri-plugin-mihomo", branch = "revert" }
 clash_verge_logger = { git = "https://github.com/clash-verge-rev/clash-verge-logger" }
 async-trait = "0.1.89"
-clash_verge_service_ipc = { version = "2.3.0", features = [
+# The service binary bundled by scripts/prebuild.mjs is downloaded from the
+# release matching this `version`; keep `version` and `tag` in sync.
+clash_verge_service_ipc = { version = "2.3.0", tag = "v2.3.0", features = [
   "client",
 ], git = "https://github.com/clash-verge-rev/clash-verge-service-ipc" }
 arc-swap = "1.9.0"
